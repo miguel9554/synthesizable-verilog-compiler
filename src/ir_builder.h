@@ -1,22 +1,66 @@
 #pragma once
 
+#include <iosfwd>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 // Forward declarations for slang types
 namespace slang::syntax {
 class ModuleHeaderSyntax;
+class DataTypeSyntax;
+template<typename T> class SyntaxList;
+class VariableDimensionSyntax;
 }
 
 namespace custom_hdl {
 
+// Type metadata variants
+struct IntegerInfo {
+    bool is_signed = false;
+};
+
+// Variant holding type-specific metadata
+// Add new structs (FixedPointInfo, StructInfo, etc.) as needed
+using TypeMetadata = std::variant<
+    std::monostate,    // unspecified/implicit type
+    IntegerInfo
+>;
+
+// Extracted type information from DataTypeSyntax
+struct TypeInfo {
+    std::string name;
+    int width = 0;
+    TypeMetadata metadata;
+
+    void print(std::ostream& os) const;
+};
+
+TypeInfo extractDataType(const slang::syntax::DataTypeSyntax& syntax);
+
+// Dimension range: pair of (left, right) bounds, e.g., [7:0] -> {7, 0}
+using DimensionRange = std::pair<int, int>;
+
+std::vector<DimensionRange> extractDimensions(
+    const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>& dimensions);
+
+// Port with name and type information
+struct PortInfo {
+    std::string name;
+    TypeInfo type;
+
+    void print(std::ostream& os) const;
+};
+
 // Extracted info from a module header
 struct ModuleHeaderInfo {
     std::string name;
-    std::vector<std::string> inputs;
-    std::vector<std::string> outputs;
+    std::vector<PortInfo> inputs;
+    std::vector<PortInfo> outputs;
     // TODO: parameters, etc.
+
+    void print(std::ostream& os) const;
 };
 
 ModuleHeaderInfo extractModuleHeader(const slang::syntax::ModuleHeaderSyntax& header);
@@ -32,8 +76,8 @@ struct IRNode {
 // Module definition
 struct IRModule : IRNode {
     std::string name;
-    std::vector<std::string> inputs;
-    std::vector<std::string> outputs;
+    std::vector<PortInfo> inputs;
+    std::vector<PortInfo> outputs;
     std::vector<std::unique_ptr<IRNode>> body;
 
     void print(int indent = 0) const override;
