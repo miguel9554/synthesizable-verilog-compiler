@@ -13,7 +13,7 @@ endif()
 
 # Check if slang submodule is initialized
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/CMakeLists.txt")
-    message(FATAL_ERROR 
+    message(FATAL_ERROR
         "Slang submodule not found. Please run:\n"
         "  git submodule update --init --recursive"
     )

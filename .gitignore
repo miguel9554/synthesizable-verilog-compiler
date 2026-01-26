@@ -15,7 +15,6 @@ custom_hdl_compiler
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-Makefile
 *.cmake
 !CMakeLists.txt
 
@@ -34,3 +33,5 @@ compile_commands.json
 __pycache__/
 *.pyc
 *.pyo
+.cache
+.clangd

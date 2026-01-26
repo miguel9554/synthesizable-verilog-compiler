@@ -4,12 +4,27 @@
 #include <string>
 #include <vector>
 
+// Forward declarations for slang types
+namespace slang::syntax {
+class ModuleHeaderSyntax;
+}
+
 namespace custom_hdl {
+
+// Extracted info from a module header
+struct ModuleHeaderInfo {
+    std::string name;
+    std::vector<std::string> inputs;
+    std::vector<std::string> outputs;
+    // TODO: parameters, etc.
+};
+
+ModuleHeaderInfo extractModuleHeader(const slang::syntax::ModuleHeaderSyntax& header);
 
 // Base class for all IR nodes
 struct IRNode {
     virtual ~IRNode() = default;
-    
+
     // For debugging: print the IR tree
     virtual void print(int indent = 0) const = 0;
 };
@@ -20,7 +35,7 @@ struct IRModule : IRNode {
     std::vector<std::string> inputs;
     std::vector<std::string> outputs;
     std::vector<std::unique_ptr<IRNode>> body;
-    
+
     void print(int indent = 0) const override;
 };
 
@@ -28,7 +43,7 @@ struct IRModule : IRNode {
 struct IRAlways : IRNode {
     std::string sensitivity;  // e.g., "posedge clk"
     std::unique_ptr<IRNode> body;
-    
+
     void print(int indent = 0) const override;
 };
 
@@ -37,7 +52,7 @@ struct IRVariable : IRNode {
     std::string name;
     std::string type;  // e.g., "reg", "wire"
     int width;         // bit width
-    
+
     void print(int indent = 0) const override;
 };
 
@@ -46,7 +61,7 @@ struct IRAssignment : IRNode {
     std::string target;
     std::string value;  // Simplified for now
     bool blocking;      // true for =, false for <=
-    
+
     void print(int indent = 0) const override;
 };
 
@@ -55,14 +70,14 @@ struct IRIf : IRNode {
     std::string condition;
     std::unique_ptr<IRNode> thenBranch;
     std::unique_ptr<IRNode> elseBranch;
-    
+
     void print(int indent = 0) const override;
 };
 
 // Statement block
 struct IRBlock : IRNode {
     std::vector<std::unique_ptr<IRNode>> statements;
-    
+
     void print(int indent = 0) const override;
 };
 

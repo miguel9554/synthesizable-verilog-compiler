@@ -22,15 +22,15 @@ int main(int argc, char** argv) {
         printUsage(argv[0]);
         return 1;
     }
-    
+
     std::string filename = argv[1];
-    
+
     std::cout << "========================================" << std::endl;
     std::cout << "Custom HDL Compiler" << std::endl;
     std::cout << "========================================" << std::endl;
     std::cout << "Parsing: " << filename << std::endl;
     std::cout << "----------------------------------------" << std::endl;
-    
+
     // Parse the Verilog file using Slang
     auto treeResult = SyntaxTree::fromFile(filename);
 
@@ -61,20 +61,20 @@ int main(int argc, char** argv) {
     // Build our custom IR
     std::cout << "\nBuilding IR..." << std::endl;
     auto modules = buildIR(*tree);
-    
+
     std::cout << "----------------------------------------" << std::endl;
     std::cout << "\nGenerated IR:" << std::endl;
     std::cout << "========================================" << std::endl;
-    
+
     // Print the IR
     for (const auto& module : modules) {
         module->print();
         std::cout << std::endl;
     }
-    
+
     std::cout << "========================================" << std::endl;
     std::cout << "Compilation completed successfully!" << std::endl;
     std::cout << "Found " << modules.size() << " module(s)." << std::endl;
-    
+
     return 0;
 }
