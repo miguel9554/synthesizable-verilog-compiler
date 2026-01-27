@@ -27,6 +27,9 @@ add_subdirectory(external/slang)
 # Create the main executable
 add_executable(custom_hdl_compiler
     src/main.cpp
+    src/types.cpp
+    src/ir_nodes.cpp
+    src/syntax_extract.cpp
     src/ir_builder.cpp
 )
 

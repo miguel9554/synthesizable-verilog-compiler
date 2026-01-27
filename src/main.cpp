@@ -8,9 +8,6 @@ using namespace slang;
 using namespace slang::syntax;
 using namespace custom_hdl;
 
-// Forward declaration from ir_builder.cpp
-std::vector<std::unique_ptr<IRModule>> buildIR(const SyntaxTree& tree);
-
 void printUsage(const char* progName) {
     std::cerr << "Usage: " << progName << " <verilog_file>" << std::endl;
     std::cerr << "\nExample:" << std::endl;
