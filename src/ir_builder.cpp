@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/syntax/AllSyntax.h"
@@ -19,7 +20,17 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
 
     if (header.lifetime) throw std::runtime_error("Can't parse lifetime");
     if (!header.imports.empty()) throw std::runtime_error("Can't parse imports");
-    if (header.parameters) throw std::runtime_error("Can't parse parameters");
+
+    if (header.parameters) {
+        for (auto* declaration : header.parameters->declarations) {
+            std::cout << declaration->toString() << std::endl;
+            if (declaration->kind == SyntaxKind::TypeParameterDeclaration){
+                throw std::runtime_error("Can't parse Type parameters");
+            }
+            auto& paramDeclaration = declaration->as<ParameterDeclarationSyntax>();
+            TypeInfo typeInfo = extractDataType(paramDeclaration.type);
+        }
+    }
 
     // Extract ports
     if (header.ports) {
@@ -46,7 +57,7 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
                 auto dir = varHeader.direction.kind;
                 TypeInfo typeInfo = extractDataType(*varHeader.dataType);
 
-                PortInfo portInfo{portName, typeInfo};
+                SignalInfo portInfo{portName, typeInfo};
                 if (dir == TokenKind::InputKeyword) {
                     info.inputs.push_back(portInfo);
                 } else if (dir == TokenKind::OutputKeyword) {
@@ -60,7 +71,7 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
                 auto dir = netHeader.direction.kind;
                 TypeInfo typeInfo = extractDataType(*netHeader.dataType);
 
-                PortInfo portInfo{portName, typeInfo};
+                SignalInfo portInfo{portName, typeInfo};
                 if (dir == TokenKind::InputKeyword) {
                     info.inputs.push_back(portInfo);
                 } else if (dir == TokenKind::OutputKeyword) {
@@ -131,7 +142,7 @@ TypeInfo extractDataType(const DataTypeSyntax& syntax) {
         auto& intType = syntax.as<IntegerTypeSyntax>();
 
         // Extract type name from keyword
-        info.name = std::string(intType.keyword.valueText());
+        info.name = "Integer";
 
         // Extract signing
         bool isSigned = false;
@@ -143,15 +154,9 @@ TypeInfo extractDataType(const DataTypeSyntax& syntax) {
 
         // Extract dimensions and compute width
         auto dims = extractDimensions(intType.dimensions);
-        if (dims.empty()) {
-            info.width = 1;
-        } else if (dims.size() == 1) {
-            info.width = std::abs(dims[0].first - dims[0].second) + 1;
-        } else {
-            info.width = 1;
-            for (const auto& dim : dims) {
-                info.width *= std::abs(dim.first - dim.second) + 1;
-            }
+        info.width = 1;
+        for (const auto& dim : dims) {
+            info.width *= std::abs(dim.first - dim.second) + 1;
         }
 
         info.metadata = IntegerInfo{.is_signed = isSigned};
@@ -162,7 +167,8 @@ TypeInfo extractDataType(const DataTypeSyntax& syntax) {
     if (syntax.kind == SyntaxKind::ImplicitType) {
         auto& implType = syntax.as<ImplicitTypeSyntax>();
 
-        info.name = "logic";  // Default to logic for implicit types
+        // TODO this name is just a string, should be an enum
+        info.name = "Integer";  // No explicit type keyword
 
         bool isSigned = false;
         if (implType.signing.kind == TokenKind::SignedKeyword) {
@@ -170,15 +176,9 @@ TypeInfo extractDataType(const DataTypeSyntax& syntax) {
         }
 
         auto dims = extractDimensions(implType.dimensions);
-        if (dims.empty()) {
-            info.width = 1;
-        } else if (dims.size() == 1) {
-            info.width = std::abs(dims[0].first - dims[0].second) + 1;
-        } else {
-            info.width = 1;
-            for (const auto& dim : dims) {
-                info.width *= std::abs(dim.first - dim.second) + 1;
-            }
+        info.width = 1;
+        for (const auto& dim : dims) {
+            info.width *= std::abs(dim.first - dim.second) + 1;
         }
 
         info.metadata = IntegerInfo{.is_signed = isSigned};
@@ -191,14 +191,18 @@ TypeInfo extractDataType(const DataTypeSyntax& syntax) {
 }
 
 void TypeInfo::print(std::ostream& os) const {
-    os << name << "[" << width << "]";
+    if (name.empty()) {
+        os << "[" << width << "]";
+    } else {
+        os << name << "[" << width << "]";
+    }
     if (std::holds_alternative<IntegerInfo>(metadata)) {
         auto& intInfo = std::get<IntegerInfo>(metadata);
         os << (intInfo.is_signed ? " signed" : " unsigned");
     }
 }
 
-void PortInfo::print(std::ostream& os) const {
+void SignalInfo::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
 }
@@ -261,7 +265,7 @@ public:
         currentModule = nullptr;
     }
 
-    void handle(const PortDeclarationSyntax& node) {
+    void handle() {
         throw std::runtime_error("Should not visit PortDeclarationSyntax");
     }
 
@@ -285,16 +289,11 @@ public:
                 std::cout << "  Found always_ff block" << std::endl;
                 break;
             case SyntaxKind::AlwaysLatchBlock:
-                always->sensitivity = "always_latch";
-                std::cout << "  Found always_latch block" << std::endl;
-                break;
+                throw std::runtime_error("Latch not allowed.");
             case SyntaxKind::InitialBlock:
-                always->sensitivity = "initial";
-                std::cout << "  Found initial block" << std::endl;
-                break;
+                throw std::runtime_error("Initial block not synthesizable");
             default:
-                always->sensitivity = "unknown";
-                break;
+                throw std::runtime_error("Unknown syntax");
         }
 
         currentModule->body.push_back(std::move(always));

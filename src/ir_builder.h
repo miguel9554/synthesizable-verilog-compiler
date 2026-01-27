@@ -46,7 +46,7 @@ std::vector<DimensionRange> extractDimensions(
     const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>& dimensions);
 
 // Port with name and type information
-struct PortInfo {
+struct SignalInfo {
     std::string name;
     TypeInfo type;
 
@@ -56,8 +56,11 @@ struct PortInfo {
 // Extracted info from a module header
 struct ModuleHeaderInfo {
     std::string name;
-    std::vector<PortInfo> inputs;
-    std::vector<PortInfo> outputs;
+    std::vector<SignalInfo> parameters;
+    std::vector<SignalInfo> inputs;
+    std::vector<SignalInfo> outputs;
+    std::vector<SignalInfo> flops;
+    std::vector<SignalInfo> signals;
     // TODO: parameters, etc.
 
     void print(std::ostream& os) const;
@@ -76,8 +79,11 @@ struct IRNode {
 // Module definition
 struct IRModule : IRNode {
     std::string name;
-    std::vector<PortInfo> inputs;
-    std::vector<PortInfo> outputs;
+    std::vector<SignalInfo> inputs;
+    std::vector<SignalInfo> outputs;
+    std::vector<SignalInfo> signals;
+    std::vector<SignalInfo> flops;
+    std::vector<SignalInfo> parameters;
     std::vector<std::unique_ptr<IRNode>> body;
 
     void print(int indent = 0) const override;
