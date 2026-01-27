@@ -3,12 +3,21 @@
 
 namespace custom_hdl {
 
+TypeInfo TypeInfo::makeInteger(int width, bool is_signed) {
+    return TypeInfo{
+        .kind = TypeKind::Integer,
+        .width = width,
+        .metadata = IntegerInfo{.is_signed = is_signed}
+    };
+}
+
 void TypeInfo::print(std::ostream& os) const {
-    if (name.empty()) {
-        os << "[" << width << "]";
-    } else {
-        os << name << "[" << width << "]";
+    switch (kind) {
+        case TypeKind::Integer:
+            os << "Integer";
+            break;
     }
+    os << "[" << width << "]";
     if (std::holds_alternative<IntegerInfo>(metadata)) {
         auto& intInfo = std::get<IntegerInfo>(metadata);
         os << (intInfo.is_signed ? " signed" : " unsigned");

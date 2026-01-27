@@ -60,56 +60,36 @@ std::vector<DimensionRange> extractDimensions(
     return result;
 }
 
+namespace {
+
+int computeWidth(const std::vector<DimensionRange>& dims) {
+    int width = 1;
+    for (const auto& dim : dims) {
+        width *= std::abs(dim.first - dim.second) + 1;
+    }
+    return width;
+}
+
+bool isSigned(TokenKind kind) {
+    return kind == TokenKind::SignedKeyword;
+}
+
+} // anonymous namespace
+
 TypeInfo extractDataType(const DataTypeSyntax& syntax) {
-    TypeInfo info;
+    // Lambda to extract dimensions and signing from a type
+    auto makeTypeFromDims = [](const auto& type) {
+        int width = computeWidth(extractDimensions(type.dimensions));
+        return TypeInfo::makeInteger(width, isSigned(type.signing.kind));
+    };
 
-    // Handle IntegerTypeSyntax (logic, reg, bit, int, etc.)
     if (IntegerTypeSyntax::isKind(syntax.kind)) {
-        auto& intType = syntax.as<IntegerTypeSyntax>();
-
-        info.name = "Integer";
-
-        // Extract signing
-        bool isSigned = false;
-        if (intType.signing.kind == TokenKind::SignedKeyword) {
-            isSigned = true;
-        } else if (intType.signing.kind == TokenKind::UnsignedKeyword) {
-            isSigned = false;
-        }
-
-        // Extract dimensions and compute width
-        auto dims = extractDimensions(intType.dimensions);
-        info.width = 1;
-        for (const auto& dim : dims) {
-            info.width *= std::abs(dim.first - dim.second) + 1;
-        }
-
-        info.metadata = IntegerInfo{.is_signed = isSigned};
-        return info;
+        return makeTypeFromDims(syntax.as<IntegerTypeSyntax>());
     }
-
-    // Handle ImplicitTypeSyntax (default/inferred type, e.g., "input clk")
     if (syntax.kind == SyntaxKind::ImplicitType) {
-        auto& implType = syntax.as<ImplicitTypeSyntax>();
-
-        info.name = "Integer";
-
-        bool isSigned = false;
-        if (implType.signing.kind == TokenKind::SignedKeyword) {
-            isSigned = true;
-        }
-
-        auto dims = extractDimensions(implType.dimensions);
-        info.width = 1;
-        for (const auto& dim : dims) {
-            info.width *= std::abs(dim.first - dim.second) + 1;
-        }
-
-        info.metadata = IntegerInfo{.is_signed = isSigned};
-        return info;
+        return makeTypeFromDims(syntax.as<ImplicitTypeSyntax>());
     }
 
-    // Unsupported DataTypeSyntax kind
     throw std::runtime_error("Unsupported DataTypeSyntax kind: " +
                              std::string(toString(syntax.kind)));
 }

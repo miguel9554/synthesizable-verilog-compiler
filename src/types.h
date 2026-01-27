@@ -7,6 +7,12 @@
 
 namespace custom_hdl {
 
+// Base type categories
+enum class TypeKind {
+    Integer,
+    // Future: Real, String, Struct, Enum, etc.
+};
+
 // Type metadata variants
 struct IntegerInfo {
     bool is_signed = false;
@@ -21,11 +27,14 @@ using TypeMetadata = std::variant<
 
 // Extracted type information from DataTypeSyntax
 struct TypeInfo {
-    std::string name;
+    TypeKind kind = TypeKind::Integer;
     int width = 0;
     TypeMetadata metadata;
 
     void print(std::ostream& os) const;
+
+    // Factory for integer types
+    static TypeInfo makeInteger(int width, bool is_signed);
 };
 
 // Dimension range: pair of (left, right) bounds, e.g., [7:0] -> {7, 0}
