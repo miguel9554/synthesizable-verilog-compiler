@@ -14,6 +14,15 @@ namespace custom_hdl {
 void IRModule::print(int indent) const {
     std::cout << indent_str(indent) << "Module: " << name << std::endl;
 
+    if (!parameters.empty()) {
+        std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
+        for (const auto& param : parameters) {
+            std::cout << indent_str(indent + 2);
+            param.print(std::cout);
+            std::cout << std::endl;
+        }
+    }
+
     if (!inputs.empty()) {
         std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
         for (const auto& in : inputs) {

@@ -71,7 +71,7 @@ module cordic #(
             ROTATE:  next_state = (i == N_ITER-1) ? DONE : ROTATE;
             DONE:    next_state = IDLE;
             default: next_state = IDLE;
-        endcase 
+        endcase
     end
 
     //--------------------------------------------------------------------------
@@ -84,7 +84,7 @@ module cordic #(
             cos_out <= 0;
             sin_out <= 0;
             i       <= 0;
-            
+
             // Initialize arctan lookup table (Q1.14 format)
             atan_table[0]  <= 16'sb0011_0010_0100_0100;   // atan(2^-0)  = 45.000° ≈ 0.78539 rad
             atan_table[1]  <= 16'sb0001_1101_1010_1100;   // atan(2^-1)  = 26.565° ≈ 0.46365 rad
@@ -101,7 +101,7 @@ module cordic #(
             atan_table[12] <= 16'sb0000_0000_0000_0100;   // atan(2^-12) =  0.014° ≈ 0.00024 rad
             atan_table[13] <= 16'sb0000_0000_0000_0010;   // atan(2^-13) =  0.007° ≈ 0.00012 rad
             atan_table[14] <= 16'sb0000_0000_0000_0001;   // atan(2^-14) =  0.004° ≈ 0.00006 rad
-        end 
+        end
         else begin
             case (state)
                 //--------------------------------------------------------------
@@ -126,7 +126,7 @@ module cordic #(
                         x <= x - (y >>> i);
                         y <= y + (x >>> i);
                         z <= z - atan_table[i];
-                    end 
+                    end
                     else begin
                         // Negative angle: rotate clockwise
                         x <= x + (y >>> i);

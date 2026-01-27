@@ -30,7 +30,7 @@ public:
 
         if (node.blockName) throw std::runtime_error("Can't parse blockName");
 
-        std::cout << "Processing module: " << module->name << std::endl;
+        // std::cout << "Processing module: " << module->name << std::endl;
 
         // Set current module context
         currentModule = module.get();
@@ -52,15 +52,15 @@ public:
         switch (node.kind) {
             case SyntaxKind::AlwaysBlock:
                 always->sensitivity = "always";
-                std::cout << "  Found always block" << std::endl;
+                // std::cout << "  Found always block" << std::endl;
                 break;
             case SyntaxKind::AlwaysCombBlock:
                 always->sensitivity = "always_comb";
-                std::cout << "  Found always_comb block" << std::endl;
+                // std::cout << "  Found always_comb block" << std::endl;
                 break;
             case SyntaxKind::AlwaysFFBlock:
                 always->sensitivity = "always_ff";
-                std::cout << "  Found always_ff block" << std::endl;
+                // std::cout << "  Found always_ff block" << std::endl;
                 break;
             case SyntaxKind::AlwaysLatchBlock:
                 throw std::runtime_error("Latch not allowed.");

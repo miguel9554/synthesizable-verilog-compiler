@@ -1,32 +1,29 @@
 #include "types.h"
+
 #include <iostream>
+
+#include "slang/syntax/AllSyntax.h"
 
 namespace custom_hdl {
 
-TypeInfo TypeInfo::makeInteger(int width, bool is_signed) {
-    return TypeInfo{
-        .kind = TypeKind::Integer,
-        .width = width,
-        .metadata = IntegerInfo{.is_signed = is_signed}
-    };
-}
-
 void TypeInfo::print(std::ostream& os) const {
-    switch (kind) {
-        case TypeKind::Integer:
-            os << "Integer";
-            break;
-    }
-    os << "[" << width << "]";
-    if (std::holds_alternative<IntegerInfo>(metadata)) {
-        auto& intInfo = std::get<IntegerInfo>(metadata);
-        os << (intInfo.is_signed ? " signed" : " unsigned");
+    if (syntax) {
+        os << syntax->toString();
+    } else {
+        os << "<no type>";
     }
 }
 
 void SignalInfo::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
+    for (const auto& dim : dimensions) {
+        os << "[";
+        if (dim.left) os << dim.left->toString();
+        os << ":";
+        if (dim.right) os << dim.right->toString();
+        os << "]";
+    }
 }
 
 void ModuleHeaderInfo::print(std::ostream& os) const {

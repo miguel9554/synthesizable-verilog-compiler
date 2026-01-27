@@ -2,53 +2,41 @@
 
 #include <iosfwd>
 #include <string>
-#include <variant>
 #include <vector>
+
+// Forward declarations for slang syntax types
+namespace slang::syntax {
+struct DataTypeSyntax;
+struct ExpressionSyntax;
+}
 
 namespace custom_hdl {
 
-// Base type categories
-enum class TypeKind {
-    Integer,
-    // Future: Real, String, Struct, Enum, etc.
-};
-
-// Type metadata variants
-struct IntegerInfo {
-    bool is_signed = false;
-};
-
-// Variant holding type-specific metadata
-// Add new structs (FixedPointInfo, StructInfo, etc.) as needed
-using TypeMetadata = std::variant<
-    std::monostate,    // unspecified/implicit type
-    IntegerInfo
->;
-
-// Extracted type information from DataTypeSyntax
+// Unresolved type - stores pointer to slang syntax node
+// Resolution happens in pass 2 when parameter values are known
 struct TypeInfo {
-    TypeKind kind = TypeKind::Integer;
-    int width = 0;
-    TypeMetadata metadata;
+    const slang::syntax::DataTypeSyntax* syntax = nullptr;
 
     void print(std::ostream& os) const;
-
-    // Factory for integer types
-    static TypeInfo makeInteger(int width, bool is_signed);
 };
 
-// Dimension range: pair of (left, right) bounds, e.g., [7:0] -> {7, 0}
-using DimensionRange = std::pair<int, int>;
+// Unresolved dimension range - stores pointers to slang expression nodes
+// e.g., [WIDTH-1:0] stores pointers to the "WIDTH-1" and "0" expressions
+struct DimensionRange {
+    const slang::syntax::ExpressionSyntax* left = nullptr;
+    const slang::syntax::ExpressionSyntax* right = nullptr;
+};
 
-// Signal with name and type information
+// Signal with name and unresolved type information
 struct SignalInfo {
     std::string name;
     TypeInfo type;
+    std::vector<DimensionRange> dimensions;  // array dimensions (if any)
 
     void print(std::ostream& os) const;
 };
 
-// Extracted info from a module header
+// Extracted info from a module header (unresolved)
 struct ModuleHeaderInfo {
     std::string name;
     std::vector<SignalInfo> parameters;

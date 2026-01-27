@@ -31,6 +31,7 @@ add_executable(custom_hdl_compiler
     src/ir_nodes.cpp
     src/syntax_extract.cpp
     src/ir_builder.cpp
+    src/resolver.cpp
 )
 
 # Link against slang

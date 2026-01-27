@@ -1,6 +1,5 @@
 #include "syntax_extract.h"
 
-#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -11,6 +10,11 @@ using namespace slang::syntax;
 using namespace slang::parsing;
 
 namespace custom_hdl {
+
+TypeInfo extractDataType(const DataTypeSyntax& syntax) {
+    // Simply capture the syntax pointer - resolution happens in pass 2
+    return TypeInfo{&syntax};
+}
 
 std::vector<DimensionRange> extractDimensions(
     const SyntaxList<VariableDimensionSyntax>& dimensions) {
@@ -34,64 +38,14 @@ std::vector<DimensionRange> extractDimensions(
 
         auto& rangeSelect = selector->as<RangeSelectSyntax>();
 
-        // Extract left bound
-        if (rangeSelect.left->kind != SyntaxKind::IntegerLiteralExpression) {
-            throw std::runtime_error("Dimension left bound must be integer literal");
-        }
-        auto& leftLit = rangeSelect.left->as<LiteralExpressionSyntax>();
-        auto leftVal = leftLit.literal.intValue().template as<int>();
-        if (!leftVal) {
-            throw std::runtime_error("Dimension left bound out of range");
-        }
-
-        // Extract right bound
-        if (rangeSelect.right->kind != SyntaxKind::IntegerLiteralExpression) {
-            throw std::runtime_error("Dimension right bound must be integer literal");
-        }
-        auto& rightLit = rangeSelect.right->as<LiteralExpressionSyntax>();
-        auto rightVal = rightLit.literal.intValue().template as<int>();
-        if (!rightVal) {
-            throw std::runtime_error("Dimension right bound out of range");
-        }
-
-        result.emplace_back(*leftVal, *rightVal);
+        // Capture expression pointers - no evaluation yet
+        result.push_back(DimensionRange{
+            .left = rangeSelect.left,
+            .right = rangeSelect.right
+        });
     }
 
     return result;
-}
-
-namespace {
-
-int computeWidth(const std::vector<DimensionRange>& dims) {
-    int width = 1;
-    for (const auto& dim : dims) {
-        width *= std::abs(dim.first - dim.second) + 1;
-    }
-    return width;
-}
-
-bool isSigned(TokenKind kind) {
-    return kind == TokenKind::SignedKeyword;
-}
-
-} // anonymous namespace
-
-TypeInfo extractDataType(const DataTypeSyntax& syntax) {
-    // Lambda to extract dimensions and signing from a type
-    auto makeTypeFromDims = [](const auto& type) {
-        int width = computeWidth(extractDimensions(type.dimensions));
-        return TypeInfo::makeInteger(width, isSigned(type.signing.kind));
-    };
-
-    if (IntegerTypeSyntax::isKind(syntax.kind)) {
-        return makeTypeFromDims(syntax.as<IntegerTypeSyntax>());
-    }
-    if (syntax.kind == SyntaxKind::ImplicitType) {
-        return makeTypeFromDims(syntax.as<ImplicitTypeSyntax>());
-    }
-
-    throw std::runtime_error("Unsupported DataTypeSyntax kind: " +
-                             std::string(toString(syntax.kind)));
 }
 
 ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
@@ -112,7 +66,11 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
 
             for (auto* declarator : paramDeclaration.declarators) {
                 std::string paramName = std::string(declarator->name.valueText());
-                info.parameters.push_back(SignalInfo{paramName, typeInfo});
+                info.parameters.push_back(SignalInfo{
+                    .name = paramName,
+                    .type = typeInfo,
+                    .dimensions = {}
+                });
             }
         }
     }
@@ -141,7 +99,12 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
                 auto dir = varHeader.direction.kind;
                 TypeInfo typeInfo = extractDataType(*varHeader.dataType);
 
-                SignalInfo portInfo{portName, typeInfo};
+                SignalInfo portInfo{
+                    .name = portName,
+                    .type = typeInfo,
+                    .dimensions = {}
+                };
+
                 if (dir == TokenKind::InputKeyword) {
                     info.inputs.push_back(portInfo);
                 } else if (dir == TokenKind::OutputKeyword) {
@@ -155,7 +118,12 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
                 auto dir = netHeader.direction.kind;
                 TypeInfo typeInfo = extractDataType(*netHeader.dataType);
 
-                SignalInfo portInfo{portName, typeInfo};
+                SignalInfo portInfo{
+                    .name = portName,
+                    .type = typeInfo,
+                    .dimensions = {}
+                };
+
                 if (dir == TokenKind::InputKeyword) {
                     info.inputs.push_back(portInfo);
                 } else if (dir == TokenKind::OutputKeyword) {

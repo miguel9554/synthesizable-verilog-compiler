@@ -4,22 +4,22 @@
 
 // Forward declarations for slang types
 namespace slang::syntax {
-class ModuleHeaderSyntax;
-class DataTypeSyntax;
+struct ModuleHeaderSyntax;
+struct DataTypeSyntax;
+struct VariableDimensionSyntax;
 template<typename T> class SyntaxList;
-class VariableDimensionSyntax;
 }
 
 namespace custom_hdl {
 
-// Extract type information from a DataTypeSyntax node
+// Extract type information - just captures the syntax pointer (no resolution)
 TypeInfo extractDataType(const slang::syntax::DataTypeSyntax& syntax);
 
-// Extract dimension ranges from a list of VariableDimensionSyntax nodes
+// Extract dimension ranges - captures expression syntax pointers (no evaluation)
 std::vector<DimensionRange> extractDimensions(
     const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>& dimensions);
 
-// Extract module header information (name, ports, parameters)
+// Extract module header information (name, ports, parameters) - all unresolved
 ModuleHeaderInfo extractModuleHeader(const slang::syntax::ModuleHeaderSyntax& header);
 
 } // namespace custom_hdl
