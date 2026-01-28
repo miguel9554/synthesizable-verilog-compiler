@@ -43,7 +43,7 @@ public:
         // SyntaxKind::CaseGenerate,
         // SyntaxKind::GenerateBlock,
         // SyntaxKind::TimeUnitsDeclaration,
-        // SyntaxKind::HierarchyInstantiation,
+        SyntaxKind::HierarchyInstantiation,
         // SyntaxKind::FunctionDeclaration,
         SyntaxKind::ContinuousAssign,
         // SyntaxKind::DefParam,
@@ -117,6 +117,12 @@ public:
         }
         std::move(signals.begin(), signals.end(),
                   std::back_inserter(currentModule->signals));
+    }
+
+    void handle(const HierarchyInstantiationSyntax& node) {
+        if (!currentModule) throw std::runtime_error(
+                "Continuous assign must be inside module.");
+        currentModule->hierarchyInstantiation.push_back(&node);
     }
 
     void handle(const ContinuousAssignSyntax& node) {

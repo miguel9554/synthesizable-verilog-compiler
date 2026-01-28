@@ -55,6 +55,8 @@ void IRModule::print(int indent) const {
 
     std::cout << indent_str(indent + 1) << "No of cont. assign.: " << assignStatements.size() << std::endl;
 
+    std::cout << indent_str(indent + 1) << "No of hier. inst.: " << hierarchyInstantiation.size() << std::endl;
+
 }
 
 } // namespace custom_hdl
