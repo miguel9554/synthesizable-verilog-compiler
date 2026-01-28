@@ -95,9 +95,17 @@ public:
         if (!currentModule) throw std::runtime_error(
                 "Procedural block must be inside module.");
         const auto type = extractDataType(*node.type);
-        std::vector<std::unique_ptr<SignalInfo>> signals;
+        std::vector<SignalInfo> signals;
         for (auto declarator : node.declarators){
+                signals.push_back(
+                    SignalInfo{
+                    .name = declarator->name.toString(),
+                    .type = type,
+                    .dimensions = {&(declarator->dimensions)},
+                });
         }
+        std::move(signals.begin(), signals.end(),
+                  std::back_inserter(currentModule->signals));
     }
 
     void handle(const ProceduralBlockSyntax& node) {

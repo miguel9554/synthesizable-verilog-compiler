@@ -17,9 +17,7 @@ void TypeInfo::print(std::ostream& os) const {
 void SignalInfo::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
-    for (const auto& dim : dimensions) {
-        if (dim.syntax) os << dim.syntax->toString();
-    }
+    if (dimensions.syntax) os << dimensions.syntax->toString();
 }
 
 void ModuleHeaderInfo::print(std::ostream& os) const {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "slang/syntax/SyntaxNode.h"
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -23,14 +24,14 @@ struct TypeInfo {
 // Unresolved dimension - stores pointer to slang syntax node
 // Resolution into specific dimension kind happens in pass 2
 struct DimensionRange {
-    const slang::syntax::VariableDimensionSyntax* syntax = nullptr;
+    const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>* syntax = nullptr;
 };
 
 // Signal with name and unresolved type information
 struct SignalInfo {
     std::string name;
     TypeInfo type;
-    std::vector<DimensionRange> dimensions;  // array dimensions (if any)
+    DimensionRange dimensions;  // array dimensions (if any)
 
     void print(std::ostream& os) const;
 };

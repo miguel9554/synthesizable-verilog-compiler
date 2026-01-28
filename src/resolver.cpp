@@ -94,9 +94,9 @@ ResolvedSignal resolveSignal(const SignalInfo& signal, const ParameterContext& /
 
     // STUB: Return empty dimensions
     // TODO: Evaluate signal.dimensions expressions using ctx
-    for (size_t i = 0; i < signal.dimensions.size(); ++i) {
-        resolved.dimensions.push_back(ResolvedDimension{0, 0});
-    }
+    // for (size_t i = 0; i < signal.dimensions.size(); ++i) {
+        // resolved.dimensions.push_back(ResolvedDimension{0, 0});
+    // }
 
     return resolved;
 }
