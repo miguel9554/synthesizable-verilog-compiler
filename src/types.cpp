@@ -8,7 +8,11 @@ namespace custom_hdl {
 
 void TypeInfo::print(std::ostream& os) const {
     if (syntax) {
-        os << syntax->toString();
+        // Avoid printing Trivia (comments), just rawText of tokens.
+        for (auto it = syntax->tokens_begin(); it != syntax->tokens_end(); ++it) {
+            os << (*it).rawText();
+            os << " ";
+        }
     } else {
         os << "<no type>";
     }
