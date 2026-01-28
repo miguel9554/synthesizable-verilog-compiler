@@ -1,7 +1,7 @@
 #pragma once
 
+#include "slang/syntax/AllSyntax.h"
 #include "types.h"
-#include <memory>
 #include <vector>
 
 namespace custom_hdl {
@@ -20,49 +20,25 @@ struct IRModule : IRNode {
     std::vector<SignalInfo> outputs;
     std::vector<SignalInfo> signals;
     std::vector<SignalInfo> flops;
-    std::vector<std::unique_ptr<IRNode>> body;
 
-    void print(int indent = 0) const override;
-};
+    // Clocks: all the clocks.
+    // Reset: all the resets.
+    // TODO for the moment we'll store async triggers
+    // TODO 2nd pass we parse the behavioral block and extract
+    std::vector<SignalInfo> async_triggers;
 
-// Always block (procedural logic)
-struct IRAlways : IRNode {
-    std::string sensitivity;  // e.g., "posedge clk"
-    std::unique_ptr<IRNode> body;
+    // Procedural timing blocks
+    // Can be combo @(*)
+    // or seq @(posedge/negedge c)
+    // Functions from (inputs, flops outputs) -> outputs
+    // Functions from (inputs, flops) -> flops inputs
+    std::vector<const slang::syntax::TimingControlStatementSyntax*> proceduralTimingBlocks;
 
-    void print(int indent = 0) const override;
-};
+    // Procedural combo blocks from always_comb
+    // These have no timing.
+    std::vector<const slang::syntax::StatementSyntax*> proceduralComboBlocks;
 
-// Variable declaration
-struct IRVariable : IRNode {
-    std::string name;
-    std::string type;  // e.g., "reg", "wire"
-    int width;         // bit width
-
-    void print(int indent = 0) const override;
-};
-
-// Assignment statement
-struct IRAssignment : IRNode {
-    std::string target;
-    std::string value;  // Simplified for now
-    bool blocking;      // true for =, false for <=
-
-    void print(int indent = 0) const override;
-};
-
-// If statement
-struct IRIf : IRNode {
-    std::string condition;
-    std::unique_ptr<IRNode> thenBranch;
-    std::unique_ptr<IRNode> elseBranch;
-
-    void print(int indent = 0) const override;
-};
-
-// Statement block
-struct IRBlock : IRNode {
-    std::vector<std::unique_ptr<IRNode>> statements;
+    // TODO a list of instantiated modules.
 
     void print(int indent = 0) const override;
 };

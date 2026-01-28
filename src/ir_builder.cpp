@@ -2,7 +2,6 @@
 #include "syntax_extract.h"
 
 #include <algorithm>
-#include <iostream>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -50,6 +49,18 @@ public:
         // SyntaxKind::DefParam,
         // SyntaxKind::ElabSystemTask,
         // SyntaxKind::LocalVariableDeclaration,
+    };
+
+    // Synthesizable statements
+    static constexpr SyntaxKind synthesizableStatements[] = {
+        SyntaxKind::ConditionalStatement,
+        SyntaxKind::CaseStatement,
+        SyntaxKind::EmptyStatement,
+        SyntaxKind::LoopStatement,
+        SyntaxKind::ForLoopStatement,
+        SyntaxKind::ForeachLoopStatement,
+        SyntaxKind::TimingControlStatement,
+        SyntaxKind::ExpressionStatement,
     };
 
     static bool isInList(SyntaxKind kind, std::span<const SyntaxKind> list) {
@@ -110,25 +121,31 @@ public:
 
     void handle(const ProceduralBlockSyntax& node) {
         if (!currentModule) throw std::runtime_error(
-                "Procedural block must be inside module."
-                );
-
-        auto always = std::make_unique<IRAlways>();
+                "Procedural block must be inside module.");
 
         // Extract sensitivity list based on block kind
         switch (node.kind) {
-            case SyntaxKind::AlwaysBlock:
-                always->sensitivity = "always";
-                // std::cout << "  Found always block" << std::endl;
-                break;
-            case SyntaxKind::AlwaysCombBlock:
-                always->sensitivity = "always_comb";
-                // std::cout << "  Found always_comb block" << std::endl;
-                break;
             case SyntaxKind::AlwaysFFBlock:
-                always->sensitivity = "always_ff";
-                // std::cout << "  Found always_ff block" << std::endl;
+            case SyntaxKind::AlwaysBlock:{
+                auto& statement = node.statement;
+                if (statement->isKind(SyntaxKind::TimingControlStatement)){
+                    auto& timingControl = statement->as<TimingControlStatementSyntax>();
+                    currentModule->proceduralTimingBlocks.push_back(&timingControl);
+                } else {
+                    throw std::runtime_error("Procedural block must have timing control.");
+                }
                 break;
+             }
+            case SyntaxKind::AlwaysCombBlock:{
+                auto& statement = node.statement;
+                if (isInList(statement->kind, synthesizableStatements)) {
+                    currentModule->proceduralComboBlocks.push_back(statement);
+
+                } else {
+                    throw std::runtime_error("Not synthesizable statement");
+                }
+                break;
+             }
             case SyntaxKind::AlwaysLatchBlock:
                 throw std::runtime_error("Latch not allowed.");
             case SyntaxKind::InitialBlock:
@@ -136,8 +153,6 @@ public:
             default:
                 throw std::runtime_error("Unknown procedural block kind");
         }
-
-        currentModule->body.push_back(std::move(always));
 
         visitDefault(node);
     }

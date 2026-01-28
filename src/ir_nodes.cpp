@@ -49,47 +49,10 @@ void IRModule::print(int indent) const {
         std::cout << std::endl;
     }
 
-    std::cout << indent_str(indent + 1) << "Body:" << std::endl;
-    for (const auto& node : body) {
-        node->print(indent + 2);
-    }
-}
+    std::cout << indent_str(indent + 1) << "No of procedural timing:" << proceduralTimingBlocks.size() << std::endl;
 
-void IRAlways::print(int indent) const {
-    std::cout << indent_str(indent) << "Always (" << sensitivity << ")" << std::endl;
-    if (body) {
-        body->print(indent + 1);
-    }
-}
+    std::cout << indent_str(indent + 1) << "No of procedural combo:" << proceduralComboBlocks.size() << std::endl;
 
-void IRVariable::print(int indent) const {
-    std::cout << indent_str(indent) << "Variable: " << name
-              << " [" << type << ", " << width << " bits]" << std::endl;
-}
-
-void IRAssignment::print(int indent) const {
-    std::cout << indent_str(indent) << "Assignment: " << target
-              << (blocking ? " = " : " <= ") << value << std::endl;
-}
-
-void IRIf::print(int indent) const {
-    std::cout << indent_str(indent) << "If (" << condition << ")" << std::endl;
-    if (thenBranch) {
-        std::cout << indent_str(indent + 1) << "Then:" << std::endl;
-        thenBranch->print(indent + 2);
-    }
-    if (elseBranch) {
-        std::cout << indent_str(indent + 1) << "Else:" << std::endl;
-        elseBranch->print(indent + 2);
-    }
-}
-
-void IRBlock::print(int indent) const {
-    std::cout << indent_str(indent) << "Block {" << std::endl;
-    for (const auto& stmt : statements) {
-        stmt->print(indent + 1);
-    }
-    std::cout << indent_str(indent) << "}" << std::endl;
 }
 
 } // namespace custom_hdl
