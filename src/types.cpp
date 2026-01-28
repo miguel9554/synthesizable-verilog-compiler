@@ -18,11 +18,7 @@ void SignalInfo::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
     for (const auto& dim : dimensions) {
-        os << "[";
-        if (dim.left) os << dim.left->toString();
-        os << ":";
-        if (dim.right) os << dim.right->toString();
-        os << "]";
+        if (dim.syntax) os << dim.syntax->toString();
     }
 }
 

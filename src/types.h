@@ -7,7 +7,7 @@
 // Forward declarations for slang syntax types
 namespace slang::syntax {
 struct DataTypeSyntax;
-struct ExpressionSyntax;
+struct VariableDimensionSyntax;
 }
 
 namespace custom_hdl {
@@ -20,11 +20,10 @@ struct TypeInfo {
     void print(std::ostream& os) const;
 };
 
-// Unresolved dimension range - stores pointers to slang expression nodes
-// e.g., [WIDTH-1:0] stores pointers to the "WIDTH-1" and "0" expressions
+// Unresolved dimension - stores pointer to slang syntax node
+// Resolution into specific dimension kind happens in pass 2
 struct DimensionRange {
-    const slang::syntax::ExpressionSyntax* left = nullptr;
-    const slang::syntax::ExpressionSyntax* right = nullptr;
+    const slang::syntax::VariableDimensionSyntax* syntax = nullptr;
 };
 
 // Signal with name and unresolved type information

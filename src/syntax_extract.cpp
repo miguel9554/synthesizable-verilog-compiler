@@ -1,6 +1,5 @@
 #include "syntax_extract.h"
 
-#include <iostream>
 #include <stdexcept>
 
 #include "slang/syntax/AllSyntax.h"
@@ -14,38 +13,6 @@ namespace custom_hdl {
 TypeInfo extractDataType(const DataTypeSyntax& syntax) {
     // Simply capture the syntax pointer - resolution happens in pass 2
     return TypeInfo{&syntax};
-}
-
-std::vector<DimensionRange> extractDimensions(
-    const SyntaxList<VariableDimensionSyntax>& dimensions) {
-    std::vector<DimensionRange> result;
-
-    for (auto* dim : dimensions) {
-        if (!dim->specifier) {
-            throw std::runtime_error("Unsupported dimension: missing specifier");
-        }
-
-        if (dim->specifier->kind != SyntaxKind::RangeDimensionSpecifier) {
-            throw std::runtime_error("Unsupported dimension specifier kind");
-        }
-
-        auto& rangeSpec = dim->specifier->as<RangeDimensionSpecifierSyntax>();
-        SelectorSyntax* selector = rangeSpec.selector;
-
-        if (!RangeSelectSyntax::isKind(selector->kind)) {
-            throw std::runtime_error("Unsupported selector kind in dimension");
-        }
-
-        auto& rangeSelect = selector->as<RangeSelectSyntax>();
-
-        // Capture expression pointers - no evaluation yet
-        result.push_back(DimensionRange{
-            .left = rangeSelect.left,
-            .right = rangeSelect.right
-        });
-    }
-
-    return result;
 }
 
 ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {

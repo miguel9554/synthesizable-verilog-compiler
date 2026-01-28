@@ -1,12 +1,17 @@
 #include "ir_builder.h"
 #include "syntax_extract.h"
 
+#include <algorithm>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <stdexcept>
 
 #include "slang/syntax/AllSyntax.h"
+#include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include "types.h"
 
 using namespace slang::syntax;
 using namespace custom_hdl;
@@ -19,6 +24,38 @@ public:
     std::vector<std::unique_ptr<IRModule>> modules;
     IRModule* currentModule = nullptr;
 
+    // Module members we support and will visit
+    static constexpr SyntaxKind allowedMembers[] = {
+        SyntaxKind::DataDeclaration,
+        SyntaxKind::NetDeclaration,
+        SyntaxKind::ParameterDeclarationStatement,
+        // SyntaxKind::GenvarDeclaration,
+        SyntaxKind::EmptyMember,
+        // SyntaxKind::ProceduralBlock,
+        // SyntaxKind::InitialBlock,
+        // SyntaxKind::FinalBlock,
+        SyntaxKind::AlwaysBlock,
+        SyntaxKind::AlwaysCombBlock,
+        SyntaxKind::AlwaysFFBlock,
+        // SyntaxKind::AlwaysLatchBlock,
+        // SyntaxKind::GenerateRegion,
+        // SyntaxKind::LoopGenerate,
+        // SyntaxKind::IfGenerate,
+        // SyntaxKind::CaseGenerate,
+        // SyntaxKind::GenerateBlock,
+        // SyntaxKind::TimeUnitsDeclaration,
+        // SyntaxKind::HierarchyInstantiation,
+        // SyntaxKind::FunctionDeclaration,
+        SyntaxKind::ContinuousAssign,
+        // SyntaxKind::DefParam,
+        // SyntaxKind::ElabSystemTask,
+        // SyntaxKind::LocalVariableDeclaration,
+    };
+
+    static bool isInList(SyntaxKind kind, std::span<const SyntaxKind> list) {
+        return std::find(list.begin(), list.end(), kind) != list.end();
+    }
+
     void handle(const ModuleDeclarationSyntax& node) {
         auto headerInfo = extractModuleHeader(*node.header);
 
@@ -30,21 +67,43 @@ public:
 
         if (node.blockName) throw std::runtime_error("Can't parse blockName");
 
-        // std::cout << "Processing module: " << module->name << std::endl;
-
         // Set current module context
         currentModule = module.get();
 
-        // Visit module members
-        visitDefault(node);
+        // Visit module members explicitly
+        for (auto* member : node.members) {
+            if (isInList(member->kind, allowedMembers)) {
+                member->visit(*this);
+            } else {
+                throw std::runtime_error(
+                    "Disallowed module member: " + std::string(toString(member->kind))
+                );
+            }
+        }
 
         // Store the completed module
         modules.push_back(std::move(module));
         currentModule = nullptr;
     }
 
+    void handle(const DeclaratorSyntax& node) {
+        auto signal = std::make_unique<SignalInfo>();
+        signal->name = node.name.toString();
+    }
+
+    void handle(const DataDeclarationSyntax& node) {
+        if (!currentModule) throw std::runtime_error(
+                "Procedural block must be inside module.");
+        const auto type = extractDataType(*node.type);
+        std::vector<std::unique_ptr<SignalInfo>> signals;
+        for (auto declarator : node.declarators){
+        }
+    }
+
     void handle(const ProceduralBlockSyntax& node) {
-        if (!currentModule) return;
+        if (!currentModule) throw std::runtime_error(
+                "Procedural block must be inside module."
+                );
 
         auto always = std::make_unique<IRAlways>();
 
