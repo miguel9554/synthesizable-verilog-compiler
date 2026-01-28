@@ -119,6 +119,12 @@ public:
                   std::back_inserter(currentModule->signals));
     }
 
+    void handle(const ContinuousAssignSyntax& node) {
+        if (!currentModule) throw std::runtime_error(
+                "Continuous assign must be inside module.");
+        currentModule->assignStatements.push_back(&node);
+    }
+
     void handle(const ProceduralBlockSyntax& node) {
         if (!currentModule) throw std::runtime_error(
                 "Procedural block must be inside module.");

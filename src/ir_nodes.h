@@ -38,7 +38,11 @@ struct IRModule : IRNode {
     // These have no timing.
     std::vector<const slang::syntax::StatementSyntax*> proceduralComboBlocks;
 
+    // Assignments
+    std::vector<const slang::syntax::ContinuousAssignSyntax*> assignStatements;
+
     // TODO a list of instantiated modules.
+    // TODO prob. should be a list of pairs of params and modules
 
     void print(int indent = 0) const override;
 };

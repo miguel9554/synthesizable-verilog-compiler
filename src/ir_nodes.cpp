@@ -53,6 +53,8 @@ void IRModule::print(int indent) const {
 
     std::cout << indent_str(indent + 1) << "No of procedural combo:" << proceduralComboBlocks.size() << std::endl;
 
+    std::cout << indent_str(indent + 1) << "No of cont. assign.: " << assignStatements.size() << std::endl;
+
 }
 
 } // namespace custom_hdl
