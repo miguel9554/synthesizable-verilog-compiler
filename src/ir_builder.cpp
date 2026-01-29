@@ -71,7 +71,7 @@ public:
         auto headerInfo = extractModuleHeader(*node.header);
 
         auto module = std::make_unique<IRModule>();
-        module->name = headerInfo.name;
+        module->name = std::move(headerInfo.name);
         module->parameters = std::move(headerInfo.parameters);
         module->inputs = std::move(headerInfo.inputs);
         module->outputs = std::move(headerInfo.outputs);
@@ -98,7 +98,7 @@ public:
     }
 
     void handle(const DeclaratorSyntax& node) {
-        auto signal = std::make_unique<SignalInfo>();
+        auto signal = std::make_unique<UnresolvedSignal>();
         signal->name = node.name.toString();
     }
 
@@ -106,10 +106,10 @@ public:
         if (!currentModule) throw std::runtime_error(
                 "Procedural block must be inside module.");
         const auto type = extractDataType(*node.type);
-        std::vector<SignalInfo> signals;
+        std::vector<UnresolvedSignal> signals;
         for (auto declarator : node.declarators){
                 signals.push_back(
-                    SignalInfo{
+                    UnresolvedSignal{
                     .name = declarator->name.toString(),
                     .type = type,
                     .dimensions = {&(declarator->dimensions)},

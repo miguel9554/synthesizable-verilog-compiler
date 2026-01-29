@@ -13,39 +13,54 @@ struct VariableDimensionSyntax;
 
 namespace custom_hdl {
 
-// Unresolved type - stores pointer to slang syntax node
+// ============================================================================
+// Unresolved types - store pointers to slang syntax nodes
 // Resolution happens in pass 2 when parameter values are known
-struct TypeInfo {
+// ============================================================================
+
+struct UnresolvedType {
     const slang::syntax::DataTypeSyntax* syntax = nullptr;
 
     void print(std::ostream& os, bool debug) const;
 };
 
-// Unresolved dimension - stores pointer to slang syntax node
-// Resolution into specific dimension kind happens in pass 2
-struct DimensionRange {
+struct UnresolvedDimension {
     const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>* syntax = nullptr;
 };
 
-// Signal with name and unresolved type information
-struct SignalInfo {
+struct UnresolvedSignal {
     std::string name;
-    TypeInfo type;
-    DimensionRange dimensions;  // array dimensions (if any)
+    UnresolvedType type;
+    UnresolvedDimension dimensions;  // array dimensions (if any)
 
     void print(std::ostream& os) const;
 };
 
-// Extracted info from a module header (unresolved)
-struct ModuleHeaderInfo {
-    std::string name;
-    std::vector<SignalInfo> parameters;
-    std::vector<SignalInfo> inputs;
-    std::vector<SignalInfo> outputs;
-    std::vector<SignalInfo> flops;
-    std::vector<SignalInfo> signals;
+// ============================================================================
+// Type traits for unresolved types
+// ============================================================================
 
-    void print(std::ostream& os) const;
+struct UnresolvedTypes {
+    using Type = UnresolvedType;
+    using Dimension = UnresolvedDimension;
+    using Signal = UnresolvedSignal;
 };
+
+// ============================================================================
+// Template module structure - parameterized by type traits
+// ============================================================================
+
+template<typename Types>
+struct ModuleBase {
+    std::string name;
+    std::vector<typename Types::Signal> parameters;
+    std::vector<typename Types::Signal> inputs;
+    std::vector<typename Types::Signal> outputs;
+    std::vector<typename Types::Signal> signals;
+    std::vector<typename Types::Signal> flops;
+};
+
+// Convenience alias for unresolved module
+using UnresolvedModule = ModuleBase<UnresolvedTypes>;
 
 } // namespace custom_hdl

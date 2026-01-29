@@ -10,13 +10,13 @@ using namespace slang::parsing;
 
 namespace custom_hdl {
 
-TypeInfo extractDataType(const DataTypeSyntax& syntax) {
+UnresolvedType extractDataType(const DataTypeSyntax& syntax) {
     // Simply capture the syntax pointer - resolution happens in pass 2
-    return TypeInfo{&syntax};
+    return UnresolvedType{&syntax};
 }
 
-ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
-    ModuleHeaderInfo info;
+UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
+    UnresolvedModule info;
     info.name = std::string(header.name.valueText());
 
     if (header.lifetime) throw std::runtime_error("Can't parse lifetime");
@@ -29,11 +29,11 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
                 throw std::runtime_error("Can't parse Type parameters");
             }
             auto& paramDeclaration = declaration->as<ParameterDeclarationSyntax>();
-            TypeInfo typeInfo = extractDataType(*paramDeclaration.type);
+            UnresolvedType typeInfo = extractDataType(*paramDeclaration.type);
 
             for (auto* declarator : paramDeclaration.declarators) {
                 std::string paramName = std::string(declarator->name.valueText());
-                info.parameters.push_back(SignalInfo{
+                info.parameters.push_back(UnresolvedSignal{
                     .name = paramName,
                     .type = typeInfo,
                     .dimensions = {}
@@ -64,9 +64,9 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
             else if (port.header->kind == SyntaxKind::VariablePortHeader) {
                 auto& varHeader = port.header->as<VariablePortHeaderSyntax>();
                 auto dir = varHeader.direction.kind;
-                TypeInfo typeInfo = extractDataType(*varHeader.dataType);
+                UnresolvedType typeInfo = extractDataType(*varHeader.dataType);
 
-                SignalInfo portInfo{
+                UnresolvedSignal portInfo{
                     .name = portName,
                     .type = typeInfo,
                     .dimensions = {}
@@ -83,9 +83,9 @@ ModuleHeaderInfo extractModuleHeader(const ModuleHeaderSyntax& header) {
             else if (port.header->kind == SyntaxKind::NetPortHeader) {
                 auto& netHeader = port.header->as<NetPortHeaderSyntax>();
                 auto dir = netHeader.direction.kind;
-                TypeInfo typeInfo = extractDataType(*netHeader.dataType);
+                UnresolvedType typeInfo = extractDataType(*netHeader.dataType);
 
-                SignalInfo portInfo{
+                UnresolvedSignal portInfo{
                     .name = portName,
                     .type = typeInfo,
                     .dimensions = {}

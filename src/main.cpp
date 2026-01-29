@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
         std::cout << "========================================" << std::endl;
 
         for (const auto& module : resolvedModules) {
-            module.print();
+            printResolvedModule(module);
             std::cout << std::endl;
         }
     }

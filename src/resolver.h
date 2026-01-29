@@ -53,20 +53,23 @@ struct ResolvedSignal {
 };
 
 // ============================================================================
+// Type traits for resolved types
+// ============================================================================
+
+struct ResolvedTypes {
+    using Type = ResolvedType;
+    using Dimension = ResolvedDimension;
+    using Signal = ResolvedSignal;
+};
+
+// ============================================================================
 // Resolved IR module (output of pass 2)
 // ============================================================================
 
-struct ResolvedModule {
-    std::string name;
-    std::vector<ResolvedSignal> parameters;
-    std::vector<ResolvedSignal> inputs;
-    std::vector<ResolvedSignal> outputs;
-    std::vector<ResolvedSignal> signals;
-    std::vector<ResolvedSignal> flops;
-    // Note: body is not resolved yet - that's a future extension
+using ResolvedModule = ModuleBase<ResolvedTypes>;
 
-    void print(int indent = 0) const;
-};
+// Helper to print a ResolvedModule
+void printResolvedModule(const ResolvedModule& module, int indent = 0);
 
 // ============================================================================
 // Parameter context for resolution

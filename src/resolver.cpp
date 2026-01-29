@@ -45,30 +45,30 @@ void ResolvedSignal::print(std::ostream& os) const {
     }
 }
 
-void ResolvedModule::print(int indent) const {
-    std::cout << indent_str(indent) << "ResolvedModule: " << name << std::endl;
+void printResolvedModule(const ResolvedModule& module, int indent) {
+    std::cout << indent_str(indent) << "ResolvedModule: " << module.name << std::endl;
 
-    if (!parameters.empty()) {
+    if (!module.parameters.empty()) {
         std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
-        for (const auto& param : parameters) {
+        for (const auto& param : module.parameters) {
             std::cout << indent_str(indent + 2);
             param.print(std::cout);
             std::cout << std::endl;
         }
     }
 
-    if (!inputs.empty()) {
+    if (!module.inputs.empty()) {
         std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
-        for (const auto& in : inputs) {
+        for (const auto& in : module.inputs) {
             std::cout << indent_str(indent + 2);
             in.print(std::cout);
             std::cout << std::endl;
         }
     }
 
-    if (!outputs.empty()) {
+    if (!module.outputs.empty()) {
         std::cout << indent_str(indent + 1) << "Outputs:" << std::endl;
-        for (const auto& out : outputs) {
+        for (const auto& out : module.outputs) {
             std::cout << indent_str(indent + 2);
             out.print(std::cout);
             std::cout << std::endl;
@@ -82,9 +82,9 @@ void ResolvedModule::print(int indent) const {
 
 namespace {
 
-// STUB: Resolve a SignalInfo to ResolvedSignal
+// STUB: Resolve an UnresolvedSignal to ResolvedSignal
 // TODO: Actually evaluate the type syntax and dimension expressions
-ResolvedSignal resolveSignal(const SignalInfo& signal, const ParameterContext& /*ctx*/) {
+ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& /*ctx*/) {
     ResolvedSignal resolved;
     resolved.name = signal.name;
 

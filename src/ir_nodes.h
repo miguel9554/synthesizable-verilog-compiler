@@ -12,20 +12,13 @@ struct IRNode {
     virtual void print(int indent = 0) const = 0;
 };
 
-// Module definition
-struct IRModule : IRNode {
-    std::string name;
-    std::vector<SignalInfo> parameters;
-    std::vector<SignalInfo> inputs;
-    std::vector<SignalInfo> outputs;
-    std::vector<SignalInfo> signals;
-    std::vector<SignalInfo> flops;
-
+// Module definition - extends ModuleBase with IR-specific members
+struct IRModule : ModuleBase<UnresolvedTypes>, IRNode {
     // Clocks: all the clocks.
     // Reset: all the resets.
     // TODO for the moment we'll store async triggers
     // TODO 2nd pass we parse the behavioral block and extract
-    std::vector<SignalInfo> async_triggers;
+    std::vector<UnresolvedSignal> async_triggers;
 
     // Procedural timing blocks
     // Can be combo @(*)
