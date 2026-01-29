@@ -6,12 +6,19 @@
 
 namespace custom_hdl {
 
-void TypeInfo::print(std::ostream& os) const {
+void TypeInfo::print(std::ostream& os, bool debug) const {
     if (syntax) {
+        if (debug) os << "\n";
         // Avoid printing Trivia (comments), just rawText of tokens.
         for (auto it = syntax->tokens_begin(); it != syntax->tokens_end(); ++it) {
-            os << (*it).rawText();
-            os << " ";
+            if (debug){
+                os << "Token: ";
+                os << (*it).rawText();
+                os << "\n";
+            } else {
+                os << (*it).rawText();
+                os << " ";
+            }
         }
     } else {
         os << "<no type>";
@@ -20,8 +27,9 @@ void TypeInfo::print(std::ostream& os) const {
 
 void SignalInfo::print(std::ostream& os) const {
     os << name << ": ";
-    type.print(os);
-    if (dimensions.syntax) os << dimensions.syntax->toString();
+    os << "type (";
+    type.print(os, 0);
+    if (dimensions.syntax) os << ") dim (" << dimensions.syntax->toString() << ")";
 }
 
 void ModuleHeaderInfo::print(std::ostream& os) const {

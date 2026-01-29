@@ -18,7 +18,7 @@ namespace custom_hdl {
 struct TypeInfo {
     const slang::syntax::DataTypeSyntax* syntax = nullptr;
 
-    void print(std::ostream& os) const;
+    void print(std::ostream& os, bool debug) const;
 };
 
 // Unresolved dimension - stores pointer to slang syntax node
