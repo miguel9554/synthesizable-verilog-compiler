@@ -1,4 +1,5 @@
 #include "resolver.h"
+#include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
 
 #include <iostream>
@@ -94,6 +95,83 @@ void printResolvedModule(const ResolvedModule& module, int indent) {
 
 namespace {
 
+// Evaluate a constant expression given a parameter context
+// Throws if a referenced parameter is not in the context
+int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContext& ctx) {
+    if (!expr) {
+        throw std::runtime_error("Cannot evaluate null expression");
+    }
+
+    switch (expr->kind) {
+        case SyntaxKind::IntegerLiteralExpression: {
+            auto& literal = expr->as<LiteralExpressionSyntax>();
+            // Parse the integer literal token
+            auto text = literal.literal.rawText();
+            // Handle simple decimal integers for now
+            // TODO: handle other bases (hex, octal, binary) and sized literals
+            return std::stoll(std::string(text));
+        }
+
+        case SyntaxKind::IdentifierName: {
+            auto& name = expr->as<IdentifierNameSyntax>();
+            std::string paramName(name.identifier.valueText());
+            auto it = ctx.values.find(paramName);
+            if (it == ctx.values.end()) {
+                throw std::runtime_error(
+                    "Parameter '" + paramName + "' not found in context");
+            }
+            return it->second;
+        }
+
+        case SyntaxKind::ParenthesizedExpression: {
+            auto& paren = expr->as<ParenthesizedExpressionSyntax>();
+            return evaluateConstantExpr(paren.expression, ctx);
+        }
+
+        case SyntaxKind::UnaryPlusExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return evaluateConstantExpr(unary.operand, ctx);
+        }
+
+        case SyntaxKind::UnaryMinusExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return -evaluateConstantExpr(unary.operand, ctx);
+        }
+
+        case SyntaxKind::AddExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return evaluateConstantExpr(binary.left, ctx) +
+                   evaluateConstantExpr(binary.right, ctx);
+        }
+
+        case SyntaxKind::SubtractExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return evaluateConstantExpr(binary.left, ctx) -
+                   evaluateConstantExpr(binary.right, ctx);
+        }
+
+        case SyntaxKind::MultiplyExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return evaluateConstantExpr(binary.left, ctx) *
+                   evaluateConstantExpr(binary.right, ctx);
+        }
+
+        case SyntaxKind::DivideExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            auto divisor = evaluateConstantExpr(binary.right, ctx);
+            if (divisor == 0) {
+                throw std::runtime_error("Division by zero in constant expression");
+            }
+            return evaluateConstantExpr(binary.left, ctx) / divisor;
+        }
+
+        default:
+            throw std::runtime_error(
+                "Unsupported expression kind in constant evaluation: " +
+                std::string(toString(expr->kind)));
+    }
+}
+
 // IntegerType
 // KeywordType
 // NamedType
@@ -105,7 +183,7 @@ namespace {
 
 // Resolve an UnresolvedParam to ResolvedParam
 // TODO: Actually evaluate the type syntax and dimension expressions
-ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& /*ctx*/) {
+ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& ctx) {
     ResolvedParam resolved;
     resolved.name = param.name;
 
@@ -121,9 +199,17 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
         throw std::runtime_error("Param with dimensions not supported.");
     }
 
-    // TODO: evaluate the default value expression
-    // For now, just set to 0
-    resolved.value = 0;
+    // First check if param value is provided in context (override)
+    auto it = ctx.values.find(param.name);
+    if (it != ctx.values.end()) {
+        resolved.value = it->second;
+    } else if (param.defaultValue) {
+        // Evaluate the default value expression
+        resolved.value = evaluateConstantExpr(param.defaultValue, ctx);
+    } else {
+        throw std::runtime_error(
+            "Parameter '" + param.name + "' has no value in context and no default value");
+    }
 
     return resolved;
 }
