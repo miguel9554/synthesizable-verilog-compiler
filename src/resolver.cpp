@@ -183,7 +183,7 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
 
 // Resolve an UnresolvedParam to ResolvedParam
 // TODO: Actually evaluate the type syntax and dimension expressions
-ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& ctx) {
+ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& topCtx, ParameterContext& localCtx) {
     ResolvedParam resolved;
     resolved.name = param.name;
 
@@ -200,15 +200,39 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
     }
 
     // First check if param value is provided in context (override)
-    auto it = ctx.values.find(param.name);
-    if (it != ctx.values.end()) {
-        resolved.value = it->second;
+    auto itTop = topCtx.values.find(param.name);
+    auto itLocal = localCtx.values.find(param.name);
+    if (itTop != topCtx.values.end()) {
+        resolved.value = itTop->second;
+    } else if (itLocal != localCtx.values.end()) {
+        resolved.value = itLocal->second;
     } else if (param.defaultValue) {
         // Evaluate the default value expression
-        resolved.value = evaluateConstantExpr(param.defaultValue, ctx);
+        // First merge contexts
+        ParameterContext mergedCtx = topCtx;
+        for (const auto& [k, v] : localCtx.values) {
+            mergedCtx.values[k] = v;
+        }
+
+        resolved.value = evaluateConstantExpr(param.defaultValue, mergedCtx);
+        localCtx.values[param.name] = resolved.value;
     } else {
-        throw std::runtime_error(
-            "Parameter '" + param.name + "' has no value in context and no default value");
+        std::ostringstream oss;
+
+        oss << "Parameter '" << param.name
+            << "' has no value in context and no default value.\n\n";
+
+        oss << "Top context values:\n";
+        for (const auto& [k, v] : topCtx.values) {
+            oss << "  '" << k << "' -> '" << v << "'\n";
+        }
+
+        oss << "\nLocal context values:\n";
+        for (const auto& [k, v] : localCtx.values) {
+            oss << "  '" << k << "' -> '" << v << "'\n";
+        }
+
+        throw std::runtime_error(oss.str());
     }
 
     return resolved;
@@ -239,10 +263,11 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 ResolvedModule resolveModule(const IRModule& unresolved, const ParameterContext& topCtx) {
     ResolvedModule resolved;
     resolved.name = unresolved.name;
+    auto localCtx = std::make_unique<ParameterContext>(topCtx);
 
     // Resolve parameters
     for (const auto& param : unresolved.parameters) {
-        resolved.parameters.push_back(resolveParameter(param, topCtx));
+        resolved.parameters.push_back(resolveParameter(param, topCtx, *localCtx));
     }
 
     /*
