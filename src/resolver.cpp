@@ -1,6 +1,9 @@
 #include "resolver.h"
+#include "slang/syntax/SyntaxKind.h"
 
 #include <iostream>
+
+using namespace slang::syntax;
 
 namespace {
 
@@ -45,6 +48,15 @@ void ResolvedSignal::print(std::ostream& os) const {
     }
 }
 
+void ResolvedParam::print(std::ostream& os) const {
+    os << name << ": ";
+    type.print(os);
+    for (const auto& dim : dimensions) {
+        os << "[" << dim.left << ":" << dim.right << "]";
+    }
+    os << " = " << value;
+}
+
 void printResolvedModule(const ResolvedModule& module, int indent) {
     std::cout << indent_str(indent) << "ResolvedModule: " << module.name << std::endl;
 
@@ -82,15 +94,50 @@ void printResolvedModule(const ResolvedModule& module, int indent) {
 
 namespace {
 
-// STUB: Resolve an UnresolvedSignal to ResolvedSignal
+// IntegerType
+// KeywordType
+// NamedType
+// StructUnionType
+// EnumType
+// TypeReference
+// VirtualInterfaceType
+// ImplicitType
+
+// Resolve an UnresolvedParam to ResolvedParam
 // TODO: Actually evaluate the type syntax and dimension expressions
+ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& /*ctx*/) {
+    ResolvedParam resolved;
+    resolved.name = param.name;
+
+    // TODO: currently only support for implicit type
+    if (param.type.syntax->isKind(SyntaxKind::ImplicitType)){
+        resolved.type = ResolvedType::makeInteger(32, false);
+    } else{
+        throw std::runtime_error("Only implicit param type supported");
+    }
+
+    // TODO only support for scalar params
+    if (param.dimensions.syntax) {
+        throw std::runtime_error("Param with dimensions not supported.");
+    }
+
+    // TODO: evaluate the default value expression
+    // For now, just set to 0
+    resolved.value = 0;
+
+    return resolved;
+}
+
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& /*ctx*/) {
     ResolvedSignal resolved;
     resolved.name = signal.name;
 
     // STUB: Return a placeholder type (1-bit unsigned)
     // TODO: Evaluate signal.type.syntax using ctx
-    resolved.type = ResolvedType::makeInteger(1, false);
+    if (signal.type.syntax->isKind(SyntaxKind::ImplicitType)){
+        resolved.type = ResolvedType::makeInteger(32, false);
+    }
+
 
     // STUB: Return empty dimensions
     // TODO: Evaluate signal.dimensions expressions using ctx
@@ -103,34 +150,36 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 
 } // anonymous namespace
 
-ResolvedModule resolveModule(const IRModule& module, const ParameterContext& ctx) {
+ResolvedModule resolveModule(const IRModule& unresolved, const ParameterContext& topCtx) {
     ResolvedModule resolved;
-    resolved.name = module.name;
+    resolved.name = unresolved.name;
 
     // Resolve parameters
-    for (const auto& param : module.parameters) {
-        resolved.parameters.push_back(resolveSignal(param, ctx));
+    for (const auto& param : unresolved.parameters) {
+        resolved.parameters.push_back(resolveParameter(param, topCtx));
     }
 
+    /*
     // Resolve inputs
-    for (const auto& input : module.inputs) {
-        resolved.inputs.push_back(resolveSignal(input, ctx));
+    for (const auto& input : unresolved.inputs) {
+        resolved.inputs.push_back(resolveSignal(input, topCtx));
     }
 
     // Resolve outputs
-    for (const auto& output : module.outputs) {
-        resolved.outputs.push_back(resolveSignal(output, ctx));
+    for (const auto& output : unresolved.outputs) {
+        resolved.outputs.push_back(resolveSignal(output, topCtx));
     }
 
     // Resolve signals
-    for (const auto& signal : module.signals) {
-        resolved.signals.push_back(resolveSignal(signal, ctx));
+    for (const auto& signal : unresolved.signals) {
+        resolved.signals.push_back(resolveSignal(signal, topCtx));
     }
 
     // Resolve flops
-    for (const auto& flop : module.flops) {
-        resolved.flops.push_back(resolveSignal(flop, ctx));
+    for (const auto& flop : unresolved.flops) {
+        resolved.flops.push_back(resolveSignal(flop, topCtx));
     }
+    */
 
     return resolved;
 }

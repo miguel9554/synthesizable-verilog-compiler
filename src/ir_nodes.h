@@ -13,6 +13,7 @@ struct IRNode {
 };
 
 // Module definition - extends ModuleBase with IR-specific members
+// TODO the extended ones should have their own unresolved-resolved pairs.
 struct IRModule : ModuleBase<UnresolvedTypes>, IRNode {
     // Clocks: all the clocks.
     // Reset: all the resets.

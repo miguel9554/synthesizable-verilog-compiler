@@ -52,6 +52,16 @@ struct ResolvedSignal {
     void print(std::ostream& os) const;
 };
 
+// Parameter extends signal with a resolved value
+struct ResolvedParam {
+    std::string name;
+    ResolvedType type;
+    std::vector<ResolvedDimension> dimensions;
+    int64_t value = 0;  // TODO: extend to variant for different types
+
+    void print(std::ostream& os) const;
+};
+
 // ============================================================================
 // Type traits for resolved types
 // ============================================================================
@@ -60,6 +70,7 @@ struct ResolvedTypes {
     using Type = ResolvedType;
     using Dimension = ResolvedDimension;
     using Signal = ResolvedSignal;
+    using Param = ResolvedParam;
 };
 
 // ============================================================================

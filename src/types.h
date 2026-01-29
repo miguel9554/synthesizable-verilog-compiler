@@ -9,6 +9,7 @@
 namespace slang::syntax {
 struct DataTypeSyntax;
 struct VariableDimensionSyntax;
+struct ExpressionSyntax;
 }
 
 namespace custom_hdl {
@@ -36,6 +37,16 @@ struct UnresolvedSignal {
     void print(std::ostream& os) const;
 };
 
+// Parameter extends signal with a default value expression
+struct UnresolvedParam {
+    std::string name;
+    UnresolvedType type;
+    UnresolvedDimension dimensions;
+    const slang::syntax::ExpressionSyntax* defaultValue = nullptr;
+
+    void print(std::ostream& os) const;
+};
+
 // ============================================================================
 // Type traits for unresolved types
 // ============================================================================
@@ -44,6 +55,7 @@ struct UnresolvedTypes {
     using Type = UnresolvedType;
     using Dimension = UnresolvedDimension;
     using Signal = UnresolvedSignal;
+    using Param = UnresolvedParam;
 };
 
 // ============================================================================
@@ -53,7 +65,7 @@ struct UnresolvedTypes {
 template<typename Types>
 struct ModuleBase {
     std::string name;
-    std::vector<typename Types::Signal> parameters;
+    std::vector<typename Types::Param> parameters;
     std::vector<typename Types::Signal> inputs;
     std::vector<typename Types::Signal> outputs;
     std::vector<typename Types::Signal> signals;

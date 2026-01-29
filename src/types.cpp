@@ -32,4 +32,14 @@ void UnresolvedSignal::print(std::ostream& os) const {
     if (dimensions.syntax) os << ") dim (" << dimensions.syntax->toString() << ")";
 }
 
+void UnresolvedParam::print(std::ostream& os) const {
+    os << name << ": ";
+    os << "type (";
+    type.print(os, 0);
+    if (dimensions.syntax) os << ") dim (" << dimensions.syntax->toString() << ")";
+    if (defaultValue) {
+        os << " = " << defaultValue->toString();
+    }
+}
+
 } // namespace custom_hdl

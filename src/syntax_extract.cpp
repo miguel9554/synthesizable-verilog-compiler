@@ -33,10 +33,15 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
 
             for (auto* declarator : paramDeclaration.declarators) {
                 std::string paramName = std::string(declarator->name.valueText());
-                info.parameters.push_back(UnresolvedSignal{
+                const ExpressionSyntax* defaultValue = nullptr;
+                if (declarator->initializer) {
+                    defaultValue = declarator->initializer->expr;
+                }
+                info.parameters.push_back(UnresolvedParam{
                     .name = paramName,
                     .type = typeInfo,
-                    .dimensions = {}
+                    .dimensions = {},
+                    .defaultValue = defaultValue
                 });
             }
         }
