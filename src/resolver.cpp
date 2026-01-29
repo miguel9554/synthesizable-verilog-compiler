@@ -1,8 +1,11 @@
 #include "resolver.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
+#include "slang/syntax/SyntaxNode.h"
+#include "types.h"
 
 #include <iostream>
+#include <ostream>
 
 using namespace slang::syntax;
 
@@ -61,31 +64,39 @@ void ResolvedParam::print(std::ostream& os) const {
 void printResolvedModule(const ResolvedModule& module, int indent) {
     std::cout << indent_str(indent) << "ResolvedModule: " << module.name << std::endl;
 
-    if (!module.parameters.empty()) {
-        std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
-        for (const auto& param : module.parameters) {
-            std::cout << indent_str(indent + 2);
-            param.print(std::cout);
-            std::cout << std::endl;
-        }
+    std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
+    for (const auto& param : module.parameters) {
+        std::cout << indent_str(indent + 2);
+        param.print(std::cout);
+        std::cout << std::endl;
     }
 
-    if (!module.inputs.empty()) {
-        std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
-        for (const auto& in : module.inputs) {
-            std::cout << indent_str(indent + 2);
-            in.print(std::cout);
-            std::cout << std::endl;
-        }
+    std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
+    for (const auto& in : module.inputs) {
+        std::cout << indent_str(indent + 2);
+        in.print(std::cout);
+        std::cout << std::endl;
     }
 
-    if (!module.outputs.empty()) {
-        std::cout << indent_str(indent + 1) << "Outputs:" << std::endl;
-        for (const auto& out : module.outputs) {
-            std::cout << indent_str(indent + 2);
-            out.print(std::cout);
-            std::cout << std::endl;
-        }
+    std::cout << indent_str(indent + 1) << "Outputs:" << std::endl;
+    for (const auto& out : module.outputs) {
+        std::cout << indent_str(indent + 2);
+        out.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Signals:" << std::endl;
+    for (const auto& signal : module.signals) {
+        std::cout << indent_str(indent + 2);
+        signal.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Flops:" << std::endl;
+    for (const auto& flop : module.flops) {
+        std::cout << indent_str(indent + 2);
+        flop.print(std::cout);
+        std::cout << std::endl;
     }
 }
 
@@ -238,22 +249,114 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
     return resolved;
 }
 
-ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& /*ctx*/) {
-    ResolvedSignal resolved;
-    resolved.name = signal.name;
+// IntegerType
+// KeywordType
+// NamedType
+// StructUnionType
+// EnumType
+// TypeReference
+// VirtualInterfaceType
+// ImplicitType
 
-    // STUB: Return a placeholder type (1-bit unsigned)
-    // TODO: Evaluate signal.type.syntax using ctx
-    if (signal.type.syntax->isKind(SyntaxKind::ImplicitType)){
-        resolved.type = ResolvedType::makeInteger(32, false);
+std::vector<ResolvedDimension> ResolveDimensions(
+        const SyntaxList<VariableDimensionSyntax>& dimensionsSyntaxList,
+        const ParameterContext& ctx){
+    std::vector<ResolvedDimension> resolvedDimensions;
+    // Parse dimensionsSyntax from syntax
+    if (!dimensionsSyntaxList.empty()) {
+        for (const auto* dimSyntax : dimensionsSyntaxList) {
+            if (!dimSyntax->specifier) {
+                throw std::runtime_error("Dimension specifier is null");
+            }
+
+            if (!dimSyntax->specifier->isKind(SyntaxKind::RangeDimensionSpecifier)) {
+                throw std::runtime_error(
+                    "Only range dimension specifier supported, got: " +
+                    std::string(toString(dimSyntax->specifier->kind)));
+            }
+
+            auto& rangeSpec = dimSyntax->specifier->as<RangeDimensionSpecifierSyntax>();
+
+            if (!rangeSpec.selector->isKind(SyntaxKind::SimpleRangeSelect)) {
+                throw std::runtime_error(
+                    "Only simple range select supported, got: " +
+                    std::string(toString(rangeSpec.selector->kind)));
+            }
+
+            auto& rangeSelect = rangeSpec.selector->as<RangeSelectSyntax>();
+
+            int64_t left = evaluateConstantExpr(rangeSelect.left, ctx);
+            int64_t right = evaluateConstantExpr(rangeSelect.right, ctx);
+
+            resolvedDimensions.push_back(ResolvedDimension{
+                .left = static_cast<int>(left),
+                .right = static_cast<int>(right)
+            });
+        }
+    } else {
+        // No dimension syntax - default to single bit [0:0]
+        resolvedDimensions.push_back(ResolvedDimension{.left = 0, .right = 0});
+    }
+    return resolvedDimensions;
+}
+
+// Resolve type and dimensions from syntax
+// Populates the dimensions vector and returns the ResolvedType with computed width
+ResolvedType resolveType(
+    const DataTypeSyntax& syntax,
+    // const UnresolvedDimension& dimension,
+    const ParameterContext& ctx)
+{
+
+    SyntaxList<VariableDimensionSyntax> packedDimensionsSyntax = nullptr;
+
+    bool is_signed;
+
+    switch (syntax.kind){
+        case SyntaxKind::ImplicitType: {
+            packedDimensionsSyntax = (syntax.as<ImplicitTypeSyntax>()).dimensions;
+            is_signed = false;
+            break;
+        }
+        case SyntaxKind::LogicType: {
+            packedDimensionsSyntax = (syntax.as<IntegerTypeSyntax>()).dimensions;
+            is_signed = (syntax.as<IntegerTypeSyntax>()).signing.rawText() == "signed";
+            break;
+        }
+        case SyntaxKind::RegType: {
+            packedDimensionsSyntax = (syntax.as<IntegerTypeSyntax>()).dimensions;
+            is_signed = (syntax.as<IntegerTypeSyntax>()).signing.rawText() == "signed";
+            break;
+        }
+        default:
+            throw std::runtime_error(
+                "Unsupported type: " +
+                std::string(toString(syntax.kind)));
     }
 
 
-    // STUB: Return empty dimensions
-    // TODO: Evaluate signal.dimensions expressions using ctx
-    // for (size_t i = 0; i < signal.dimensions.size(); ++i) {
-        // resolved.dimensions.push_back(ResolvedDimension{0, 0});
-    // }
+    // TODO we could store this in the struct also if needed
+    const auto packedDimensions = ResolveDimensions(packedDimensionsSyntax, ctx);
+
+    // Compute total width as product of all dimension sizes
+    int width = 1;
+    for (const auto& dim : packedDimensions) {
+        width *= dim.size();
+    }
+
+    return ResolvedType::makeInteger(width, is_signed);
+}
+
+ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
+    ResolvedSignal resolved;
+    resolved.name = signal.name;
+
+    resolved.type = resolveType(
+        *signal.type.syntax,
+        ctx);
+
+
+    if (signal.dimensions.syntax) resolved.dimensions = ResolveDimensions(*signal.dimensions.syntax, ctx);
 
     return resolved;
 }
@@ -270,27 +373,30 @@ ResolvedModule resolveModule(const IRModule& unresolved, const ParameterContext&
         resolved.parameters.push_back(resolveParameter(param, topCtx, *localCtx));
     }
 
-    /*
+    auto mergedCtx = std::make_unique<ParameterContext>(topCtx);
+    for (const auto& [k, v] : (*localCtx).values) {
+        (*mergedCtx).values[k] = v;
+    }
+
     // Resolve inputs
     for (const auto& input : unresolved.inputs) {
-        resolved.inputs.push_back(resolveSignal(input, topCtx));
+        resolved.inputs.push_back(resolveSignal(input, *mergedCtx));
     }
 
     // Resolve outputs
     for (const auto& output : unresolved.outputs) {
-        resolved.outputs.push_back(resolveSignal(output, topCtx));
+        resolved.outputs.push_back(resolveSignal(output, *mergedCtx));
     }
 
     // Resolve signals
     for (const auto& signal : unresolved.signals) {
-        resolved.signals.push_back(resolveSignal(signal, topCtx));
+        resolved.signals.push_back(resolveSignal(signal, *mergedCtx));
     }
 
     // Resolve flops
     for (const auto& flop : unresolved.flops) {
         resolved.flops.push_back(resolveSignal(flop, topCtx));
     }
-    */
 
     return resolved;
 }

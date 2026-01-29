@@ -27,6 +27,7 @@ using ResolvedTypeMetadata = std::variant<
     ResolvedIntegerInfo
 >;
 
+// TODO should actually have a packed dimension? or we don't care?
 struct ResolvedType {
     ResolvedTypeKind kind = ResolvedTypeKind::Integer;
     int width = 0;

@@ -99,7 +99,7 @@ public:
 
     void handle(const DeclaratorSyntax& node) {
         auto signal = std::make_unique<UnresolvedSignal>();
-        signal->name = node.name.toString();
+        signal->name = std::string(node.name.valueText());
     }
 
     void handle(const DataDeclarationSyntax& node) {
@@ -110,7 +110,7 @@ public:
         for (auto declarator : node.declarators){
                 signals.push_back(
                     UnresolvedSignal{
-                    .name = declarator->name.toString(),
+                    .name = std::string(declarator->name.valueText()),
                     .type = type,
                     .dimensions = {&(declarator->dimensions)},
                 });
