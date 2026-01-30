@@ -378,7 +378,7 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
     }
 }
 
-ResolvedTypes::Assign resolveAssign(
+std::vector<ResolvedTypes::Assign> resolveAssign(
         const ContinuousAssignSyntax* syntax,
         const ParameterContext& /*ctx*/
     ){
@@ -386,26 +386,20 @@ ResolvedTypes::Assign resolveAssign(
     if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
     if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
 
-    // Each assignment in the list is an expression like "lhs = rhs"
-    // For now, handle only single assignments
-    if (syntax->assignments.empty()) {
-        throw std::runtime_error("Empty assignment list");
+    std::vector<ResolvedTypes::Assign> result;
+
+    for (const auto* assignExpr : syntax->assignments) {
+        if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
+            throw std::runtime_error(
+                "Expected assignment expression, got: " +
+                std::string(toString(assignExpr->kind)));
+        }
+
+        auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
+        result.push_back(buildExprTree(binaryAssign.right));
     }
 
-    // Get the first assignment expression
-    const auto* assignExpr = syntax->assignments[0];
-
-    // The assignment should be a binary expression with '=' operator
-    if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
-        throw std::runtime_error(
-            "Expected assignment expression, got: " +
-            std::string(toString(assignExpr->kind)));
-    }
-
-    auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
-
-    // Build expression tree from the right-hand side
-    return buildExprTree(binaryAssign.right);
+    return result;
 }
 
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
@@ -459,8 +453,12 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         resolved.flops.push_back(resolveSignal(flop, *mergedCtx));
     }
 
-    for (const auto& assign: unresolved.assignStatements) {
-        resolved.assignStatements.push_back(resolveAssign(assign, *mergedCtx));
+    for (const auto& assign : unresolved.assignStatements) {
+        auto assignments = resolveAssign(assign, *mergedCtx);
+        resolved.assignStatements.insert(
+            resolved.assignStatements.end(),
+            std::make_move_iterator(assignments.begin()),
+            std::make_move_iterator(assignments.end()));
     }
 
     return resolved;
