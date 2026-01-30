@@ -24,15 +24,11 @@ endif()
 message(STATUS "Adding slang from external/slang")
 add_subdirectory(external/slang)
 
+# Collect all source files in src/
+file(GLOB PROJECT_SOURCES src/*.cpp)
+
 # Create the main executable
-add_executable(custom_hdl_compiler
-    src/main.cpp
-    src/types.cpp
-    src/ir_nodes.cpp
-    src/syntax_extract.cpp
-    src/ir_builder.cpp
-    src/resolver.cpp
-)
+add_executable(custom_hdl_compiler ${PROJECT_SOURCES})
 
 # Link against slang
 target_link_libraries(custom_hdl_compiler PRIVATE
@@ -51,6 +47,13 @@ target_include_directories(custom_hdl_compiler PRIVATE
 # Optional: Add install target
 install(TARGETS custom_hdl_compiler
     RUNTIME DESTINATION bin
+)
+
+# Custom target to clean only project artifacts (not slang)
+add_custom_target(clean_project
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/custom_hdl_compiler
+    COMMAND find ${CMAKE_BINARY_DIR}/CMakeFiles/custom_hdl_compiler.dir -name "*.o" -delete 2>/dev/null || true
+    COMMENT "Cleaning project artifacts only (preserving slang)"
 )
 
 # Print build configuration
