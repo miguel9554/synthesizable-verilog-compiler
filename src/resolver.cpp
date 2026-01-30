@@ -305,25 +305,107 @@ ResolvedType resolveType(
     return ResolvedType::makeInteger(width, is_signed);
 }
 
-std::unique_ptr<ExprNode> evaluateSignalExpr(
-        const ExpressionSyntax* expr,
-        const ParameterContext& /*ctx*/
-) {
-    return std::make_unique<LiteralNode>(8);
+std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
+    if (!expr) {
+        throw std::runtime_error("Cannot build expression tree from null expression");
+    }
+
+    switch (expr->kind) {
+        case SyntaxKind::IntegerLiteralExpression: {
+            auto& literal = expr->as<LiteralExpressionSyntax>();
+            auto text = literal.literal.rawText();
+            double value = std::stod(std::string(text));
+            return std::make_unique<LiteralNode>(value);
+        }
+
+        case SyntaxKind::IdentifierName: {
+            auto& name = expr->as<IdentifierNameSyntax>();
+            std::string signalName(name.identifier.valueText());
+            return std::make_unique<NamedReferenceNode>(signalName);
+        }
+
+        case SyntaxKind::ParenthesizedExpression: {
+            auto& paren = expr->as<ParenthesizedExpressionSyntax>();
+            return buildExprTree(paren.expression);
+        }
+
+        case SyntaxKind::UnaryPlusExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::PLUS);
+        }
+
+        case SyntaxKind::UnaryMinusExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::NEGATE);
+        }
+
+        case SyntaxKind::AddExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::SUM);
+        }
+
+        case SyntaxKind::SubtractExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::MINUS);
+        }
+
+        case SyntaxKind::MultiplyExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::MULTIPLY);
+        }
+
+        case SyntaxKind::DivideExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::DIVIDE);
+        }
+
+        default:
+            throw std::runtime_error(
+                "Unsupported expression kind in expression tree: " +
+                std::string(toString(expr->kind)));
+    }
 }
 
 ResolvedTypes::Assign resolveAssign(
         const ContinuousAssignSyntax* syntax,
-        const ParameterContext& ctx
+        const ParameterContext& /*ctx*/
     ){
     if (!syntax) throw std::runtime_error("Null pointer");
     if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
     if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
-    // TODO: Actually parse the assignment expression
-    for (const auto& assign: syntax->assignments) {
-        const auto assignExpr = evaluateSignalExpr(assign, ctx);
+
+    // Each assignment in the list is an expression like "lhs = rhs"
+    // For now, handle only single assignments
+    if (syntax->assignments.empty()) {
+        throw std::runtime_error("Empty assignment list");
     }
-    return std::make_unique<LiteralNode>(8);
+
+    // Get the first assignment expression
+    const auto* assignExpr = syntax->assignments[0];
+
+    // The assignment should be a binary expression with '=' operator
+    if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
+        throw std::runtime_error(
+            "Expected assignment expression, got: " +
+            std::string(toString(assignExpr->kind)));
+    }
+
+    auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
+
+    // Build expression tree from the right-hand side
+    return buildExprTree(binaryAssign.right);
 }
 
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {

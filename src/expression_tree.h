@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 namespace custom_hdl {
 
 // Forward declaration to break circular dependency
@@ -27,25 +30,55 @@ struct ResolvedSignal;
         double evaluate() const override;
     };
 
-    typedef enum { SUM, MINUS } BINARY_OP;
+    enum class UnaryOp { NEGATE, PLUS };
 
-    class BinaryNode: public ExprNode{
-        ExprNode * left;
-        ExprNode * right;
-        BINARY_OP op;
+    class UnaryNode : public ExprNode {
+        std::unique_ptr<ExprNode> operand;
+        UnaryOp op;
     public:
-        explicit BinaryNode(ExprNode * l, ExprNode * r, BINARY_OP op): left(l), right(r), op(op) {}
+        UnaryNode(std::unique_ptr<ExprNode> operand, UnaryOp op)
+            : operand(std::move(operand)), op(op) {}
+        double evaluate() const override {
+            double val = operand->evaluate();
+            switch (op) {
+                case UnaryOp::NEGATE: return -val;
+                case UnaryOp::PLUS: return val;
+            }
+            return val;
+        }
+    };
+
+    // Reference by name (for signals not yet resolved to pointers)
+    class NamedReferenceNode : public ExprNode {
+        std::string name;
+    public:
+        explicit NamedReferenceNode(std::string n) : name(std::move(n)) {}
+        const std::string& getName() const { return name; }
+        double evaluate() const override {
+            // Cannot evaluate without resolved reference
+            return 0.0;
+        }
+    };
+
+    enum class BinaryOp { SUM, MINUS, MULTIPLY, DIVIDE };
+
+    class BinaryNode : public ExprNode {
+        std::unique_ptr<ExprNode> left;
+        std::unique_ptr<ExprNode> right;
+        BinaryOp op;
+    public:
+        BinaryNode(std::unique_ptr<ExprNode> l, std::unique_ptr<ExprNode> r, BinaryOp op)
+            : left(std::move(l)), right(std::move(r)), op(op) {}
         double evaluate() const override {
             const double leftResult = left->evaluate();
             const double rightResult = right->evaluate();
-            switch (op){
-                case SUM:{
-                    return leftResult+rightResult;
-                }
-                case MINUS:{
-                    return leftResult-rightResult;
-                }
+            switch (op) {
+                case BinaryOp::SUM: return leftResult + rightResult;
+                case BinaryOp::MINUS: return leftResult - rightResult;
+                case BinaryOp::MULTIPLY: return leftResult * rightResult;
+                case BinaryOp::DIVIDE: return leftResult / rightResult;
             }
+            return 0.0;
         }
     };
 
