@@ -1,13 +1,17 @@
 #pragma once
 
-#include "types.h"
 #include <map>
 #include <memory>
 #include <string>
 #include <variant>
 #include <vector>
 
+#include "types.h"
+
 namespace custom_hdl {
+
+// Forward declaration to break circular dependency
+class ExprNode;
 
 // ============================================================================
 // Resolved types (output of pass 2)
@@ -50,6 +54,8 @@ struct ResolvedSignal {
     ResolvedType type;
     std::vector<ResolvedDimension> dimensions;
 
+    double value;
+
     void print(std::ostream& os) const;
 };
 
@@ -72,10 +78,10 @@ struct ResolvedTypes {
     using Dimension = ResolvedDimension;
     using Signal = ResolvedSignal;
     using Param = ResolvedParam;
+    using Assign = std::unique_ptr<ExprNode>;
     // Same as in unresolved IR
     using ProceduralTiming = UnresolvedTypes::ProceduralTiming;
     using ProceduralCombo = UnresolvedTypes::ProceduralCombo;
-    using Assign = UnresolvedTypes::Assign;
     using Hierarchy = UnresolvedTypes::Hierarchy;
 };
 

@@ -5,6 +5,7 @@
 
 #include "ir_builder.h"
 #include "resolver.h"
+#include "expression_tree.h"
 
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxTree.h"

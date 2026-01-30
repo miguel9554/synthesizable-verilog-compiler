@@ -1,11 +1,15 @@
 #include "resolver.h"
+#include "expression_tree.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxNode.h"
 #include "types.h"
 
+#include <exception>
 #include <iostream>
+#include <memory>
 #include <ostream>
+#include <stdexcept>
 
 using namespace slang::syntax;
 
@@ -301,6 +305,27 @@ ResolvedType resolveType(
     return ResolvedType::makeInteger(width, is_signed);
 }
 
+std::unique_ptr<ExprNode> evaluateSignalExpr(
+        const ExpressionSyntax* expr,
+        const ParameterContext& /*ctx*/
+) {
+    return std::make_unique<LiteralNode>(8);
+}
+
+ResolvedTypes::Assign resolveAssign(
+        const ContinuousAssignSyntax* syntax,
+        const ParameterContext& ctx
+    ){
+    if (!syntax) throw std::runtime_error("Null pointer");
+    if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
+    if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
+    // TODO: Actually parse the assignment expression
+    for (const auto& assign: syntax->assignments) {
+        const auto assignExpr = evaluateSignalExpr(assign, ctx);
+    }
+    return std::make_unique<LiteralNode>(8);
+}
+
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
     ResolvedSignal resolved;
     resolved.name = signal.name;
@@ -349,7 +374,11 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // Resolve flops
     for (const auto& flop : unresolved.flops) {
-        resolved.flops.push_back(resolveSignal(flop, topCtx));
+        resolved.flops.push_back(resolveSignal(flop, *mergedCtx));
+    }
+
+    for (const auto& assign: unresolved.assignStatements) {
+        resolved.assignStatements.push_back(resolveAssign(assign, *mergedCtx));
     }
 
     return resolved;
