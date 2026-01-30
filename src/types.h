@@ -10,6 +10,10 @@ namespace slang::syntax {
 struct DataTypeSyntax;
 struct VariableDimensionSyntax;
 struct ExpressionSyntax;
+struct TimingControlStatementSyntax;
+struct StatementSyntax;
+struct ContinuousAssignSyntax;
+struct HierarchyInstantiationSyntax;
 }
 
 namespace custom_hdl {
@@ -56,6 +60,10 @@ struct UnresolvedTypes {
     using Dimension = UnresolvedDimension;
     using Signal = UnresolvedSignal;
     using Param = UnresolvedParam;
+    using ProceduralTiming = const slang::syntax::TimingControlStatementSyntax*;
+    using ProceduralCombo = const slang::syntax::StatementSyntax*;
+    using Assign = const slang::syntax::ContinuousAssignSyntax*;
+    using Hierarchy = const slang::syntax::HierarchyInstantiationSyntax*;
 };
 
 // ============================================================================
@@ -70,6 +78,26 @@ struct ModuleBase {
     std::vector<typename Types::Signal> outputs;
     std::vector<typename Types::Signal> signals;
     std::vector<typename Types::Signal> flops;
+
+    // Procedural timing blocks
+    // Can be combo @(*)
+    // or seq @(posedge/negedge c)
+    // Functions from (inputs, flops outputs) -> outputs
+    // Functions from (inputs, flops) -> flops inputs
+    std::vector<typename Types::ProceduralTiming> proceduralTimingBlocks;
+
+    // Procedural combo blocks from always_comb
+    // These have no timing.
+    std::vector<typename Types::ProceduralCombo> proceduralComboBlocks;
+
+    // Assignments
+    std::vector<typename Types::Assign> assignStatements;
+
+    // TODO a list of instantiated modules.
+    // TODO prob. should be a list of pairs of params and modules
+    std::vector<typename Types::Hierarchy> hierarchyInstantiation;
+
+    void print(int indent = 0) const;
 };
 
 // Convenience alias for unresolved module

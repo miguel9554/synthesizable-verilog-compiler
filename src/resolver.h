@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ir_nodes.h"
+#include "types.h"
 #include <map>
 #include <memory>
 #include <string>
@@ -72,6 +73,11 @@ struct ResolvedTypes {
     using Dimension = ResolvedDimension;
     using Signal = ResolvedSignal;
     using Param = ResolvedParam;
+    // Same as in unresolved IR
+    using ProceduralTiming = UnresolvedTypes::ProceduralTiming;
+    using ProceduralCombo = UnresolvedTypes::ProceduralCombo;
+    using Assign = UnresolvedTypes::Assign;
+    using Hierarchy = UnresolvedTypes::Hierarchy;
 };
 
 // ============================================================================
