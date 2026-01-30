@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ir_nodes.h"
 #include "types.h"
 #include <map>
 #include <memory>
@@ -86,9 +85,6 @@ struct ResolvedTypes {
 
 using ResolvedModule = ModuleBase<ResolvedTypes>;
 
-// Helper to print a ResolvedModule
-void printResolvedModule(const ResolvedModule& module, int indent = 0);
-
 // ============================================================================
 // Parameter context for resolution
 // ============================================================================
@@ -104,10 +100,10 @@ struct ParameterContext {
 
 // Resolve a single module given parameter values
 // Returns nullptr if resolution fails
-ResolvedModule resolveModule(const IRModule& module, const ParameterContext& ctx);
+ResolvedModule resolveModule(const UnresolvedModule& module, const ParameterContext& ctx);
 
 // Resolve all modules (using default parameter values)
 std::vector<ResolvedModule> resolveModules(
-    const std::vector<std::unique_ptr<IRModule>>& modules);
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules);
 
 } // namespace custom_hdl

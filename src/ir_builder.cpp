@@ -20,8 +20,8 @@ namespace {
 // Visitor class that builds our custom IR from slang syntax tree
 class IRBuilderVisitor : public SyntaxVisitor<IRBuilderVisitor> {
 public:
-    std::vector<std::unique_ptr<IRModule>> modules;
-    IRModule* currentModule = nullptr;
+    std::vector<std::unique_ptr<UnresolvedModule>> modules;
+    UnresolvedModule* currentModule = nullptr;
 
     // Module members we support and will visit
     static constexpr SyntaxKind allowedMembers[] = {
@@ -70,7 +70,7 @@ public:
     void handle(const ModuleDeclarationSyntax& node) {
         auto headerInfo = extractModuleHeader(*node.header);
 
-        auto module = std::make_unique<IRModule>();
+        auto module = std::make_unique<UnresolvedModule>();
         module->name = std::move(headerInfo.name);
         module->parameters = std::move(headerInfo.parameters);
         module->inputs = std::move(headerInfo.inputs);
@@ -174,7 +174,7 @@ public:
 
 namespace custom_hdl {
 
-std::vector<std::unique_ptr<IRModule>> buildIR(const SyntaxTree& tree) {
+std::vector<std::unique_ptr<UnresolvedModule>> buildIR(const SyntaxTree& tree) {
     IRBuilderVisitor visitor;
     tree.root().visit(visitor);
     return std::move(visitor.modules);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ir_nodes.h"
+#include "types.h"
 #include <memory>
 #include <vector>
 
@@ -12,6 +12,6 @@ class SyntaxTree;
 namespace custom_hdl {
 
 // Build IR from a slang syntax tree
-std::vector<std::unique_ptr<IRModule>> buildIR(const slang::syntax::SyntaxTree& tree);
+std::vector<std::unique_ptr<UnresolvedModule>> buildIR(const slang::syntax::SyntaxTree& tree);
 
 } // namespace custom_hdl

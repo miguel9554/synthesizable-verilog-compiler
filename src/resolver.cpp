@@ -9,14 +9,6 @@
 
 using namespace slang::syntax;
 
-namespace {
-
-std::string indent_str(int indent) {
-    return std::string(indent * 2, ' ');
-}
-
-} // anonymous namespace
-
 namespace custom_hdl {
 
 // ============================================================================
@@ -61,44 +53,6 @@ void ResolvedParam::print(std::ostream& os) const {
     os << " = " << value;
 }
 
-void printResolvedModule(const ResolvedModule& module, int indent) {
-    std::cout << indent_str(indent) << "ResolvedModule: " << module.name << std::endl;
-
-    std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
-    for (const auto& param : module.parameters) {
-        std::cout << indent_str(indent + 2);
-        param.print(std::cout);
-        std::cout << std::endl;
-    }
-
-    std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
-    for (const auto& in : module.inputs) {
-        std::cout << indent_str(indent + 2);
-        in.print(std::cout);
-        std::cout << std::endl;
-    }
-
-    std::cout << indent_str(indent + 1) << "Outputs:" << std::endl;
-    for (const auto& out : module.outputs) {
-        std::cout << indent_str(indent + 2);
-        out.print(std::cout);
-        std::cout << std::endl;
-    }
-
-    std::cout << indent_str(indent + 1) << "Signals:" << std::endl;
-    for (const auto& signal : module.signals) {
-        std::cout << indent_str(indent + 2);
-        signal.print(std::cout);
-        std::cout << std::endl;
-    }
-
-    std::cout << indent_str(indent + 1) << "Flops:" << std::endl;
-    for (const auto& flop : module.flops) {
-        std::cout << indent_str(indent + 2);
-        flop.print(std::cout);
-        std::cout << std::endl;
-    }
-}
 
 // ============================================================================
 // Resolution functions (STUB implementations)
@@ -363,7 +317,7 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 
 } // anonymous namespace
 
-ResolvedModule resolveModule(const IRModule& unresolved, const ParameterContext& topCtx) {
+ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx) {
     ResolvedModule resolved;
     resolved.name = unresolved.name;
     auto localCtx = std::make_unique<ParameterContext>(topCtx);
@@ -402,7 +356,7 @@ ResolvedModule resolveModule(const IRModule& unresolved, const ParameterContext&
 }
 
 std::vector<ResolvedModule> resolveModules(
-    const std::vector<std::unique_ptr<IRModule>>& modules) {
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules) {
 
     std::vector<ResolvedModule> resolved;
     ParameterContext emptyCtx;  // Use default/empty context for now
