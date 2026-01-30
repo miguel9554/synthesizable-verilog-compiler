@@ -13,7 +13,10 @@ struct ResolvedSignal;
     class ExprNode {
     public:
             virtual double evaluate() const = 0;
+            virtual std::string toJson(int indent = 0) const = 0;
             virtual ~ExprNode() = default;
+    protected:
+            static std::string indentStr(int n) { return std::string(n * 2, ' '); }
     };
 
     class LiteralNode : public ExprNode{
@@ -21,6 +24,9 @@ struct ResolvedSignal;
     public:
         explicit LiteralNode(double v): value(v) {}
         double evaluate() const override { return value; }
+        std::string toJson(int indent = 0) const override {
+            return indentStr(indent) + R"({"type": "Literal", "value": )" + std::to_string(value) + "}";
+        }
     };
 
     class ReferenceNode : public ExprNode{
@@ -28,6 +34,9 @@ struct ResolvedSignal;
     public:
         explicit ReferenceNode(ResolvedSignal * ref): reference(ref) {}
         double evaluate() const override;
+        std::string toJson(int indent = 0) const override {
+            return indentStr(indent) + R"({"type": "Reference", "resolved": true})";
+        }
     };
 
     enum class UnaryOp { NEGATE, PLUS };
@@ -46,6 +55,14 @@ struct ResolvedSignal;
             }
             return val;
         }
+        std::string toJson(int indent = 0) const override {
+            std::string opStr = (op == UnaryOp::NEGATE) ? "negate" : "plus";
+            return indentStr(indent) + "{\n" +
+                   indentStr(indent + 1) + R"("type": "Unary",)" + "\n" +
+                   indentStr(indent + 1) + R"("op": ")" + opStr + "\",\n" +
+                   indentStr(indent + 1) + "\"operand\":\n" + operand->toJson(indent + 1) + "\n" +
+                   indentStr(indent) + "}";
+        }
     };
 
     // Reference by name (for signals not yet resolved to pointers)
@@ -57,6 +74,9 @@ struct ResolvedSignal;
         double evaluate() const override {
             // Cannot evaluate without resolved reference
             return 0.0;
+        }
+        std::string toJson(int indent = 0) const override {
+            return indentStr(indent) + R"({"type": "NamedReference", "name": ")" + name + R"("})";
         }
     };
 
@@ -79,6 +99,21 @@ struct ResolvedSignal;
                 case BinaryOp::DIVIDE: return leftResult / rightResult;
             }
             return 0.0;
+        }
+        std::string toJson(int indent = 0) const override {
+            const char* opStr;
+            switch (op) {
+                case BinaryOp::SUM: opStr = "add"; break;
+                case BinaryOp::MINUS: opStr = "subtract"; break;
+                case BinaryOp::MULTIPLY: opStr = "multiply"; break;
+                case BinaryOp::DIVIDE: opStr = "divide"; break;
+            }
+            return indentStr(indent) + "{\n" +
+                   indentStr(indent + 1) + R"("type": "Binary",)" + "\n" +
+                   indentStr(indent + 1) + R"("op": ")" + opStr + "\",\n" +
+                   indentStr(indent + 1) + "\"left\":\n" + left->toJson(indent + 1) + ",\n" +
+                   indentStr(indent + 1) + "\"right\":\n" + right->toJson(indent + 1) + "\n" +
+                   indentStr(indent) + "}";
         }
     };
 

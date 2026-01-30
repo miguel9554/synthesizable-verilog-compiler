@@ -1,18 +1,13 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
-#include <fstream>
 
 #include "ir_builder.h"
 #include "resolver.h"
 #include "expression_tree.h"
 
-#include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxTree.h"
-#include "slang/syntax/CSTSerializer.h"
-#include "slang/text/Json.h"
 
-using namespace slang;
 using namespace slang::syntax;
 using namespace custom_hdl;
 
@@ -109,25 +104,6 @@ int main(int argc, char** argv) {
     for (const auto& module : modules) {
         module->print();
         std::cout << std::endl;
-        for (const auto& assign: module->assignStatements){
-            if (assign) {
-                const char* outputFile = "assign.json";
-                JsonWriter writer;
-                writer.setPrettyPrint(true);
-
-                CSTSerializer serializer(writer);
-                serializer.serialize(*assign);
-
-                std::ofstream out(outputFile);
-                if (!out) {
-                    std::cerr << "Failed to open output file: " << outputFile << "\n";
-                    return 1;
-                }
-
-                out << writer.view();
-                std::cout << "Wrote AST to: " << outputFile << "\n";
-            }
-        }
     }
 
     // Pass 2: Resolution (optional)

@@ -1,21 +1,16 @@
 #pragma once
 
-#include "slang/syntax/SyntaxNode.h"
+#include "slang/syntax/AllSyntax.h"
+#include "slang/syntax/CSTSerializer.h"
+#include "slang/text/Json.h"
+#include <fstream>
 #include <iosfwd>
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
-// Forward declarations for slang syntax types
-namespace slang::syntax {
-struct DataTypeSyntax;
-struct VariableDimensionSyntax;
-struct ExpressionSyntax;
-struct TimingControlStatementSyntax;
-struct StatementSyntax;
-struct ContinuousAssignSyntax;
-struct HierarchyInstantiationSyntax;
-}
+// slang syntax types are now included via AllSyntax.h
 
 namespace custom_hdl {
 
@@ -142,6 +137,36 @@ struct ModuleBase {
         std::cout << indent_str(indent + 1) << "No of procedural combo: " << this->proceduralComboBlocks.size() << std::endl;
         std::cout << indent_str(indent + 1) << "No of cont. assign.: " << this->assignStatements.size() << std::endl;
         std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
+
+        // Serialize assign statements to files
+        for (size_t i = 0; i < this->assignStatements.size(); ++i) {
+            const char* typePrefix = std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>
+                ? "unresolved" : "resolved";
+            std::string filename = this->name + "_" + typePrefix + "_assign_" + std::to_string(i) + ".json";
+            std::ofstream out(filename);
+            if (!out) {
+                std::cerr << "Failed to open output file: " << filename << std::endl;
+                continue;
+            }
+
+            if constexpr (std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>) {
+                // Unresolved: use slang CSTSerializer
+                if (this->assignStatements[i]) {
+                    slang::JsonWriter writer;
+                    writer.setPrettyPrint(true);
+                    slang::syntax::CSTSerializer serializer(writer);
+                    serializer.serialize(static_cast<const slang::syntax::SyntaxNode&>(*this->assignStatements[i]));
+                    out << writer.view();
+                }
+            } else {
+                // Resolved: use ExprNode::toJson()
+                if (this->assignStatements[i]) {
+                    out << this->assignStatements[i]->toJson();
+                }
+            }
+
+            std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
+        }
     }
 };
 
