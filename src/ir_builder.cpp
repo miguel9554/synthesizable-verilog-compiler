@@ -54,6 +54,7 @@ public:
     // Synthesizable statements
     static constexpr SyntaxKind synthesizableStatements[] = {
         SyntaxKind::ConditionalStatement,
+        SyntaxKind::SequentialBlockStatement,
         SyntaxKind::CaseStatement,
         SyntaxKind::EmptyStatement,
         SyntaxKind::LoopStatement,
@@ -154,7 +155,8 @@ public:
                     currentModule->proceduralComboBlocks.push_back(statement);
 
                 } else {
-                    throw std::runtime_error("Not synthesizable statement");
+                    throw std::runtime_error(
+                    "Not synthesizable statement: " + std::string(toString(statement->kind)));
                 }
                 break;
              }

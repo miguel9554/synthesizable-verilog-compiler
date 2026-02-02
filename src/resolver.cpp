@@ -402,6 +402,13 @@ std::vector<ResolvedTypes::Assign> resolveAssign(
     return result;
 }
 
+ResolvedTypes::ProceduralCombo resolveProceduralCombo(
+        const UnresolvedTypes::ProceduralCombo& /*signal*/,
+        const ParameterContext& /*ctx*/
+){
+    return nullptr;
+}
+
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
     ResolvedSignal resolved;
     resolved.name = signal.name;
@@ -451,6 +458,11 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     // Resolve flops
     for (const auto& flop : unresolved.flops) {
         resolved.flops.push_back(resolveSignal(flop, *mergedCtx));
+    }
+
+    // Resolve procedural combo
+    for (const auto& block : unresolved.proceduralComboBlocks) {
+        resolved.proceduralComboBlocks.push_back(resolveProceduralCombo(block, *mergedCtx));
     }
 
     for (const auto& assign : unresolved.assignStatements) {
