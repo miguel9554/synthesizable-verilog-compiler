@@ -83,10 +83,10 @@ struct ResolvedSignal;
     enum class BinaryOp { SUM, MINUS, MULTIPLY, DIVIDE };
 
     class BinaryNode : public ExprNode {
+    public:
         std::unique_ptr<ExprNode> left;
         std::unique_ptr<ExprNode> right;
         BinaryOp op;
-    public:
         BinaryNode(std::unique_ptr<ExprNode> l, std::unique_ptr<ExprNode> r, BinaryOp op)
             : left(std::move(l)), right(std::move(r)), op(op) {}
         double evaluate() const override {

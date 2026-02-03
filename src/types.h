@@ -2,6 +2,7 @@
 
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/CSTSerializer.h"
+#include "slang/syntax/SyntaxKind.h"
 #include "slang/text/Json.h"
 #include <fstream>
 #include <iosfwd>
@@ -11,6 +12,25 @@
 #include <vector>
 
 // slang syntax types are now included via AllSyntax.h
+
+using namespace slang::syntax;
+
+// Utility function to dump a slang syntax node to JSON file
+inline void dumpSyntaxNodeToJson(const std::string& filepath, const slang::syntax::SyntaxNode* node) {
+    if (!node) return;
+
+    std::ofstream out(filepath);
+    if (!out) {
+        std::cerr << "Failed to open output file: " << filepath << std::endl;
+        return;
+    }
+
+    slang::JsonWriter writer;
+    writer.setPrettyPrint(true);
+    slang::syntax::CSTSerializer serializer(writer);
+    serializer.serialize(*node);
+    out << writer.view();
+}
 
 namespace custom_hdl {
 
@@ -143,24 +163,18 @@ struct ModuleBase {
             const char* typePrefix = std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>
                 ? "unresolved" : "resolved";
             std::string filename = this->name + "_" + typePrefix + "_assign_" + std::to_string(i) + ".json";
-            std::ofstream out(filename);
-            if (!out) {
-                std::cerr << "Failed to open output file: " << filename << std::endl;
-                continue;
-            }
 
             if constexpr (std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>) {
                 // Unresolved: use slang CSTSerializer
-                if (this->assignStatements[i]) {
-                    slang::JsonWriter writer;
-                    writer.setPrettyPrint(true);
-                    slang::syntax::CSTSerializer serializer(writer);
-                    serializer.serialize(static_cast<const slang::syntax::SyntaxNode&>(*this->assignStatements[i]));
-                    out << writer.view();
-                }
+                dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
             } else {
                 // Resolved: use ExprNode::toJson()
                 if (this->assignStatements[i]) {
+                    std::ofstream out(filename);
+                    if (!out) {
+                        std::cerr << "Failed to open output file: " << filename << std::endl;
+                        continue;
+                    }
                     out << this->assignStatements[i]->toJson();
                 }
             }
@@ -172,5 +186,18 @@ struct ModuleBase {
 
 // Convenience alias for unresolved module
 using UnresolvedModule = ModuleBase<UnresolvedTypes>;
+
+    // Synthesizable statements
+    static constexpr SyntaxKind synthesizableStatements[] = {
+        SyntaxKind::ConditionalStatement,
+        SyntaxKind::SequentialBlockStatement,
+        SyntaxKind::CaseStatement,
+        SyntaxKind::EmptyStatement,
+        SyntaxKind::LoopStatement,
+        SyntaxKind::ForLoopStatement,
+        SyntaxKind::ForeachLoopStatement,
+        SyntaxKind::TimingControlStatement,
+        SyntaxKind::ExpressionStatement,
+    };
 
 } // namespace custom_hdl

@@ -1,11 +1,13 @@
 #include "resolver.h"
+#include "dfg.h"
 #include "expression_tree.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxNode.h"
 #include "types.h"
+#include "behavioral_ir.h"
 
-#include <exception>
+#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <ostream>
@@ -402,10 +404,86 @@ std::vector<ResolvedTypes::Assign> resolveAssign(
     return result;
 }
 
+DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
+    if (auto* lit = dynamic_cast<const LiteralNode*>(node)){
+        return graph.constant(static_cast<int64_t>(lit->evaluate()));
+    }
+    else if (auto* namedRef = dynamic_cast<const NamedReferenceNode*>(node)){
+        return graph.input(namedRef->getName());
+    }
+    else if (auto* binary = dynamic_cast<const BinaryNode*>(node)){
+        auto* left = exprTreeToDFGNode(graph, binary->left.get());
+        auto* right = exprTreeToDFGNode(graph, binary->right.get());
+        switch(binary->op) {
+            case BinaryOp::SUM:
+                return graph.add(left, right);
+            case BinaryOp::MINUS:
+                return graph.sub(left, right);
+            case BinaryOp::MULTIPLY:
+                return graph.mul(left, right);
+            case BinaryOp::DIVIDE:
+                throw std::runtime_error("DIV operation not yet supported in DFG");
+        }
+        throw std::runtime_error("Unknown BinaryOp");
+    }
+    else if (dynamic_cast<const UnaryNode*>(node)){
+        throw std::runtime_error("Unary operations not yet supported in DFG");
+    }
+    else {
+        // Catches ReferenceNode and any other unsupported types
+        throw std::runtime_error("Unsupported ExprNode type in DFG conversion");
+    }
+}
+
+std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name){
+    auto graph = std::make_unique<DFG>();
+    auto outputNode = exprTreeToDFGNode(*graph, node);
+    graph->output(outputNode, name);
+    return graph;
+}
+
 ResolvedTypes::ProceduralCombo resolveProceduralCombo(
-        const UnresolvedTypes::ProceduralCombo& /*signal*/,
+        const UnresolvedTypes::ProceduralCombo& statement,
         const ParameterContext& /*ctx*/
 ){
+    if (statement->kind != SyntaxKind::SequentialBlockStatement){
+        throw std::runtime_error(
+        "Statement not synthesizable: " + std::string(toString(statement->kind)));
+    }
+    auto& seqStatement = statement->as<BlockStatementSyntax>();
+    for (const auto& item: seqStatement.items){
+        // if (!isInList(item->kind, synthesizableStatements)){
+        if (item->kind != SyntaxKind::ExpressionStatement){
+            throw std::runtime_error(
+            "We expect all statements to be expressions." + std::string(toString(item->kind)));
+        }
+        auto& exprStatement = item->as<ExpressionStatementSyntax>();
+        auto& expr = exprStatement.expr;
+        switch (expr->kind) {
+            case SyntaxKind::AssignmentExpression:
+                {
+                    std::cout << "We are on an assignment statement." << std::endl;
+                    std::cout << expr->toString() << std::endl;
+                    const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
+                    const auto& left = assignExpr.left;
+                    const auto& right = assignExpr.right;
+                    if (left->kind != SyntaxKind::IdentifierName) {
+                        throw std::runtime_error(
+                        "Left can only be variable name: " + std::string(toString(left->kind)));
+                    }
+                    const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
+                    const std::string name(identifier.identifier.valueText());
+                    const auto exprTree = buildExprTree(right);
+                    const auto graph = exprTreeToDFG(exprTree.get(), name);
+                    break;
+                }
+            default: {
+                throw std::runtime_error(
+                "Not synthesizable syntax element: " + std::string(toString(expr->kind)));
+                dumpSyntaxNodeToJson("debug_node.json", expr);
+            }
+        }
+    }
     return nullptr;
 }
 

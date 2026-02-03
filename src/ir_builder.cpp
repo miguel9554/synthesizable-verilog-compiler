@@ -51,19 +51,6 @@ public:
         // SyntaxKind::LocalVariableDeclaration,
     };
 
-    // Synthesizable statements
-    static constexpr SyntaxKind synthesizableStatements[] = {
-        SyntaxKind::ConditionalStatement,
-        SyntaxKind::SequentialBlockStatement,
-        SyntaxKind::CaseStatement,
-        SyntaxKind::EmptyStatement,
-        SyntaxKind::LoopStatement,
-        SyntaxKind::ForLoopStatement,
-        SyntaxKind::ForeachLoopStatement,
-        SyntaxKind::TimingControlStatement,
-        SyntaxKind::ExpressionStatement,
-    };
-
     static bool isInList(SyntaxKind kind, std::span<const SyntaxKind> list) {
         return std::find(list.begin(), list.end(), kind) != list.end();
     }
