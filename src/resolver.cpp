@@ -542,35 +542,53 @@ std::unique_ptr<DFG> resolveConditionalStatement(
 
     return graph;
 }
+
+// Forward declaration
+ResolvedTypes::ProceduralCombo resolveStatement(
+        const slang::syntax::StatementSyntax* statement,
+        std::unique_ptr<DFG> graph
+);
+
+ResolvedTypes::ProceduralCombo resolveSequentialBlockStatement(
+        const slang::syntax::BlockStatementSyntax* seqStatement,
+        std::unique_ptr<DFG> graph
+){
+    for (const auto* item: seqStatement->items){
+        // TODO should catch if this fails...
+        const auto& statement = item->as<StatementSyntax>();
+        graph = resolveStatement(&statement, std::move(graph));
+    }
+    return graph;
+}
+
 ResolvedTypes::ProceduralCombo resolveStatement(
         const slang::syntax::StatementSyntax* statement,
         std::unique_ptr<DFG> graph
 ){
-    if (statement->kind != SyntaxKind::SequentialBlockStatement){
-        throw std::runtime_error(
-        "Statement not synthesizable: " + std::string(toString(statement->kind)));
-    }
-    auto& seqStatement = statement->as<BlockStatementSyntax>();
-    for (const auto& item: seqStatement.items){
-        switch (item->kind){
-            case SyntaxKind::ExpressionStatement:{
-                const auto& exprStatement = item->as<ExpressionStatementSyntax>();
-                graph = resolveExpressionStatement(&exprStatement, std::move(graph));
-                break;
-            }
-            case SyntaxKind::ConditionalStatement:{
-                const auto& conditionalStatement = item->as<ConditionalStatementSyntax>();
-                graph = resolveConditionalStatement( &conditionalStatement, std::move(graph));
-                break;
-              }
-
-            default:
-                throw std::runtime_error(
-                    "We expect all statements to be expressions. Current: " + std::string(toString(item->kind)));
+    switch (statement->kind){
+        case SyntaxKind::SequentialBlockStatement:{
+            const auto& seqStatement = statement->as<BlockStatementSyntax>();
+            graph = resolveSequentialBlockStatement(&seqStatement, std::move(graph));
+            break;
         }
+        case SyntaxKind::ExpressionStatement:{
+            const auto& exprStatement = statement->as<ExpressionStatementSyntax>();
+            graph = resolveExpressionStatement(&exprStatement, std::move(graph));
+            break;
+        }
+        case SyntaxKind::ConditionalStatement:{
+            const auto& conditionalStatement = statement->as<ConditionalStatementSyntax>();
+            graph = resolveConditionalStatement( &conditionalStatement, std::move(graph));
+            break;
+          }
+
+        default:
+            throw std::runtime_error(
+                "We expect all statements to be expressions. Current: " + std::string(toString(statement->kind)));
     }
     return graph;
 }
+
 ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         const UnresolvedTypes::ProceduralCombo& statement,
         const ParameterContext& /*ctx*/
