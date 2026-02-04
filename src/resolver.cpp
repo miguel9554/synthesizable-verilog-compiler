@@ -371,6 +371,46 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
                 BinaryOp::DIVIDE);
         }
 
+        case SyntaxKind::EqualityExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::EQ);
+        }
+
+        case SyntaxKind::LessThanExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::LT);
+        }
+
+        case SyntaxKind::LessThanEqualExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::LE);
+        }
+
+        case SyntaxKind::GreaterThanExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::GT);
+        }
+
+        case SyntaxKind::GreaterThanEqualExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return std::make_unique<BinaryNode>(
+                buildExprTree(binary.left),
+                buildExprTree(binary.right),
+                BinaryOp::GE);
+        }
+
         default:
             throw std::runtime_error(
                 "Unsupported expression kind in expression tree: " +
@@ -429,6 +469,16 @@ DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
                 return graph.mul(left, right);
             case BinaryOp::DIVIDE:
                 throw std::runtime_error("DIV operation not yet supported in DFG");
+            case BinaryOp::EQ:
+                return graph.eq(left, right);
+            case BinaryOp::LT:
+                return graph.lt(left, right);
+            case BinaryOp::LE:
+                return graph.le(left, right);
+            case BinaryOp::GT:
+                return graph.gt(left, right);
+            case BinaryOp::GE:
+                return graph.ge(left, right);
         }
         throw std::runtime_error("Unknown BinaryOp");
     }
@@ -449,6 +499,7 @@ std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name,
     graph->output(outputNode, name, true);
     return graph;
 }
+
 
 std::unique_ptr<DFG> resolveExpressionStatement(
         const ExpressionStatementSyntax* exprStatement,
@@ -471,6 +522,55 @@ std::unique_ptr<DFG> resolveExpressionStatement(
     return exprTreeToDFG(exprTree.get(), name, std::move(graph));
 }
 
+std::unique_ptr<DFG> resolveConditionalStatement(
+        const ConditionalStatementSyntax* conditionalStatement,
+        std::unique_ptr<DFG> graph){
+    const auto& predicate = conditionalStatement->predicate;
+    if (conditionalStatement->uniqueOrPriority){
+        throw std::runtime_error("Unique/priority not supported on if");
+    }
+    if (predicate->conditions.size()>1){
+        throw std::runtime_error("Support for single predicate on if");
+    }
+    const auto& predicateExpr = predicate->conditions[0]->expr;
+
+    // construct the signal node for the predicate expression
+    auto predicateExprTree = buildExprTree(predicateExpr);
+    auto conditionNode = exprTreeToDFGNode(*graph, predicateExprTree.get());
+    // const auto expressionTakenBranch = conditionalStatement->statement->as<>;
+    // auto graphTakenBranch = resolveExpressionStatement();
+
+    return graph;
+}
+ResolvedTypes::ProceduralCombo resolveStatement(
+        const slang::syntax::StatementSyntax* statement,
+        std::unique_ptr<DFG> graph
+){
+    if (statement->kind != SyntaxKind::SequentialBlockStatement){
+        throw std::runtime_error(
+        "Statement not synthesizable: " + std::string(toString(statement->kind)));
+    }
+    auto& seqStatement = statement->as<BlockStatementSyntax>();
+    for (const auto& item: seqStatement.items){
+        switch (item->kind){
+            case SyntaxKind::ExpressionStatement:{
+                const auto& exprStatement = item->as<ExpressionStatementSyntax>();
+                graph = resolveExpressionStatement(&exprStatement, std::move(graph));
+                break;
+            }
+            case SyntaxKind::ConditionalStatement:{
+                const auto& conditionalStatement = item->as<ConditionalStatementSyntax>();
+                graph = resolveConditionalStatement( &conditionalStatement, std::move(graph));
+                break;
+              }
+
+            default:
+                throw std::runtime_error(
+                    "We expect all statements to be expressions. Current: " + std::string(toString(item->kind)));
+        }
+    }
+    return graph;
+}
 ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         const UnresolvedTypes::ProceduralCombo& statement,
         const ParameterContext& /*ctx*/
@@ -479,20 +579,8 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         throw std::runtime_error(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
-    auto& seqStatement = statement->as<BlockStatementSyntax>();
     auto graph = std::make_unique<DFG>();
-    for (const auto& item: seqStatement.items){
-        switch (item->kind){
-            case SyntaxKind::ExpressionStatement:{
-                const auto& exprStatement = item->as<ExpressionStatementSyntax>();
-                graph = resolveExpressionStatement(&exprStatement, std::move(graph));
-                break;
-            }
-            default:
-                throw std::runtime_error(
-                    "We expect all statements to be expressions. Current: " + std::string(toString(item->kind)));
-        }
-    }
+    graph = resolveStatement(statement, std::move(graph));
     return graph;
 }
 

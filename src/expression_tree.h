@@ -80,7 +80,7 @@ struct ResolvedSignal;
         }
     };
 
-    enum class BinaryOp { SUM, MINUS, MULTIPLY, DIVIDE };
+    enum class BinaryOp { SUM, MINUS, MULTIPLY, DIVIDE, EQ, LT, LE, GT, GE };
 
     class BinaryNode : public ExprNode {
     public:
@@ -97,6 +97,11 @@ struct ResolvedSignal;
                 case BinaryOp::MINUS: return leftResult - rightResult;
                 case BinaryOp::MULTIPLY: return leftResult * rightResult;
                 case BinaryOp::DIVIDE: return leftResult / rightResult;
+                case BinaryOp::EQ: return leftResult == rightResult ? 1.0 : 0.0;
+                case BinaryOp::LT: return leftResult < rightResult ? 1.0 : 0.0;
+                case BinaryOp::LE: return leftResult <= rightResult ? 1.0 : 0.0;
+                case BinaryOp::GT: return leftResult > rightResult ? 1.0 : 0.0;
+                case BinaryOp::GE: return leftResult >= rightResult ? 1.0 : 0.0;
             }
             return 0.0;
         }
@@ -107,6 +112,11 @@ struct ResolvedSignal;
                 case BinaryOp::MINUS: opStr = "subtract"; break;
                 case BinaryOp::MULTIPLY: opStr = "multiply"; break;
                 case BinaryOp::DIVIDE: opStr = "divide"; break;
+                case BinaryOp::EQ: opStr = "eq"; break;
+                case BinaryOp::LT: opStr = "lt"; break;
+                case BinaryOp::LE: opStr = "le"; break;
+                case BinaryOp::GT: opStr = "gt"; break;
+                case BinaryOp::GE: opStr = "ge"; break;
             }
             return indentStr(indent) + "{\n" +
                    indentStr(indent + 1) + R"("type": "Binary",)" + "\n" +
