@@ -450,6 +450,27 @@ std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name,
     return graph;
 }
 
+std::unique_ptr<DFG> resolveExpressionStatement(
+        const ExpressionStatementSyntax* exprStatement,
+        std::unique_ptr<DFG> graph){
+    auto& expr = exprStatement->expr;
+    if (expr->kind != SyntaxKind::AssignmentExpression){
+        throw std::runtime_error(
+        "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
+    }
+    const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
+    const auto& left = assignExpr.left;
+    const auto& right = assignExpr.right;
+    if (left->kind != SyntaxKind::IdentifierName) {
+        throw std::runtime_error(
+        "Left can only be variable name: " + std::string(toString(left->kind)));
+    }
+    const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
+    const std::string name(identifier.identifier.valueText());
+    const auto exprTree = buildExprTree(right);
+    return exprTreeToDFG(exprTree.get(), name, std::move(graph));
+}
+
 ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         const UnresolvedTypes::ProceduralCombo& statement,
         const ParameterContext& /*ctx*/
@@ -461,34 +482,15 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
     auto& seqStatement = statement->as<BlockStatementSyntax>();
     auto graph = std::make_unique<DFG>();
     for (const auto& item: seqStatement.items){
-        // if (!isInList(item->kind, synthesizableStatements)){
-        if (item->kind != SyntaxKind::ExpressionStatement){
-            throw std::runtime_error(
-            "We expect all statements to be expressions." + std::string(toString(item->kind)));
-        }
-        auto& exprStatement = item->as<ExpressionStatementSyntax>();
-        auto& expr = exprStatement.expr;
-        switch (expr->kind) {
-            case SyntaxKind::AssignmentExpression:
-                {
-                    const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
-                    const auto& left = assignExpr.left;
-                    const auto& right = assignExpr.right;
-                    if (left->kind != SyntaxKind::IdentifierName) {
-                        throw std::runtime_error(
-                        "Left can only be variable name: " + std::string(toString(left->kind)));
-                    }
-                    const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
-                    const std::string name(identifier.identifier.valueText());
-                    const auto exprTree = buildExprTree(right);
-                    graph = exprTreeToDFG(exprTree.get(), name, std::move(graph));
-                    break;
-                }
-            default: {
-                throw std::runtime_error(
-                "Not synthesizable syntax element: " + std::string(toString(expr->kind)));
-                dumpSyntaxNodeToJson("debug_node.json", expr);
+        switch (item->kind){
+            case SyntaxKind::ExpressionStatement:{
+                const auto& exprStatement = item->as<ExpressionStatementSyntax>();
+                graph = resolveExpressionStatement(&exprStatement, std::move(graph));
+                break;
             }
+            default:
+                throw std::runtime_error(
+                    "We expect all statements to be expressions. Current: " + std::string(toString(item->kind)));
         }
     }
     return graph;
