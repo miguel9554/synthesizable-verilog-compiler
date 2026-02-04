@@ -1,10 +1,12 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <format>
 #include <vector>
 #include <string>
+#include <sstream>
 #include <variant>
 #include "expression_tree.h"
 
@@ -76,6 +78,15 @@ struct DFG {
         auto result = outputs.insert({name, nodes.back().get()});
         if (!result.second) {
             if (!rename) throw std::runtime_error(std::format("Output {} already exists", name));
+            // Remove old output node from the nodes vector
+            auto oldNode = outputs[name];
+            auto it = std::find_if(nodes.begin(), nodes.end(),
+                [oldNode](const std::unique_ptr<DFGNode>& n) {
+                    return n.get() == oldNode;
+                });
+            if (it != nodes.end()) {
+                nodes.erase(it);
+            }
             outputs[name] = nodes.back().get();
         }
         return nodes.back().get();
@@ -115,6 +126,58 @@ struct DFG {
     DFGNode* assign(std::unique_ptr<ExprNode> expr) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::ASSIGN, std::move(expr)));
         return nodes.back().get();
+    }
+
+    std::string toDot(const std::string& graphName = "DFG") const {
+        std::ostringstream ss;
+        ss << "digraph " << graphName << " {\n";
+        ss << "  rankdir=TB;\n";
+        ss << "  node [shape=record];\n\n";
+
+        // Build node index map
+        std::map<const DFGNode*, size_t> nodeIndex;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            nodeIndex[nodes[i].get()] = i;
+        }
+
+        // Output nodes
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& node = nodes[i];
+            ss << "  n" << i << " [label=\"";
+
+            switch (node->op) {
+                case DFGOp::INPUT:
+                    ss << "INPUT\\n" << std::get<std::string>(node->data);
+                    break;
+                case DFGOp::OUTPUT:
+                    ss << "OUTPUT\\n" << std::get<std::string>(node->data);
+                    break;
+                case DFGOp::CONST:
+                    ss << "CONST\\n" << std::get<int64_t>(node->data);
+                    break;
+                case DFGOp::ADD: ss << "+"; break;
+                case DFGOp::SUB: ss << "-"; break;
+                case DFGOp::MUL: ss << "*"; break;
+                case DFGOp::DIV: ss << "/"; break;
+                case DFGOp::MUX: ss << "MUX"; break;
+                case DFGOp::ASSIGN: ss << "ASSIGN"; break;
+            }
+
+            ss << "\"];\n";
+        }
+
+        ss << "\n";
+
+        // Output edges
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& node = nodes[i];
+            for (const auto* input : node->in) {
+                ss << "  n" << nodeIndex.at(input) << " -> n" << i << ";\n";
+            }
+        }
+
+        ss << "}\n";
+        return ss.str();
     }
 };
 

@@ -4,12 +4,22 @@
 #include "slang/syntax/CSTSerializer.h"
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/text/Json.h"
+#include "dfg.h"
+#include <filesystem>
 #include <fstream>
 #include <iosfwd>
 #include <iostream>
 #include <string>
 #include <type_traits>
 #include <vector>
+
+namespace custom_hdl {
+inline const std::string DEBUG_OUTPUT_DIR = "debug_output";
+
+inline void ensureDebugOutputDir() {
+    std::filesystem::create_directories(DEBUG_OUTPUT_DIR);
+}
+} // namespace custom_hdl
 
 // slang syntax types are now included via AllSyntax.h
 
@@ -158,11 +168,14 @@ struct ModuleBase {
         std::cout << indent_str(indent + 1) << "No of cont. assign.: " << this->assignStatements.size() << std::endl;
         std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
 
+        // Ensure output directory exists
+        ensureDebugOutputDir();
+
         // Serialize assign statements to files
         for (size_t i = 0; i < this->assignStatements.size(); ++i) {
             const char* typePrefix = std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>
                 ? "unresolved" : "resolved";
-            std::string filename = this->name + "_" + typePrefix + "_assign_" + std::to_string(i) + ".json";
+            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_" + typePrefix + "_assign_" + std::to_string(i) + ".json";
 
             if constexpr (std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>) {
                 // Unresolved: use slang CSTSerializer
@@ -180,6 +193,23 @@ struct ModuleBase {
             }
 
             std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
+        }
+
+        // Serialize procedural combo DFGs to dot files (resolved only)
+        for (size_t i = 0; i < this->proceduralComboBlocks.size(); ++i) {
+            if constexpr (std::is_same_v<typename Types::ProceduralCombo, std::unique_ptr<custom_hdl::DFG>>) {
+                if (this->proceduralComboBlocks[i]) {
+                    std::string graphName = this->name + "_combo_" + std::to_string(i);
+                    std::string filename = DEBUG_OUTPUT_DIR + "/" + graphName + ".dot";
+                    std::ofstream out(filename);
+                    if (!out) {
+                        std::cerr << "Failed to open output file: " << filename << std::endl;
+                        continue;
+                    }
+                    out << this->proceduralComboBlocks[i]->toDot(graphName);
+                    std::cout << indent_str(indent + 1) << "Wrote combo DFG " << i << " to: " << filename << std::endl;
+                }
+            }
         }
     }
 };

@@ -5,9 +5,7 @@
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxNode.h"
 #include "types.h"
-#include "behavioral_ir.h"
 
-#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <ostream>
