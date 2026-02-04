@@ -1,0 +1,165 @@
+ImmediateAssertionStatement base=Statement multiKind=true
+token keyword
+DeferredAssertion? delay
+ParenthesizedExpression expr
+ActionBlock action
+
+ConcurrentAssertionStatement base=Statement multiKind=true
+token keyword
+token propertyOrSequence
+token openParen
+PropertySpec propertySpec
+token closeParen
+ActionBlock action
+
+EmptyStatement base=Statement
+token semicolon
+
+ConditionalStatement base=Statement
+token uniqueOrPriority
+token ifKeyword
+token openParen
+ConditionalPredicate predicate
+token closeParen
+Statement statement
+ElseClause? elseClause
+
+CaseStatement base=Statement
+token uniqueOrPriority
+token caseKeyword
+token openParen
+Expression expr
+token closeParen
+token matchesOrInside
+list<CaseItem> items
+token endcase
+
+ForeverStatement base=Statement
+token foreverKeyword
+Statement statement
+
+LoopStatement base=Statement
+token repeatOrWhile
+token openParen
+Expression expr
+token closeParen
+Statement statement
+
+DoWhileStatement base=Statement
+token doKeyword
+Statement statement
+token whileKeyword
+token openParen
+Expression expr
+token closeParen
+token semi
+
+ForLoopStatement base=Statement
+token forKeyword
+token openParen
+separated_list<SyntaxNode> initializers
+token semi1
+Expression? stopExpr
+token semi2
+separated_list<Expression> steps
+token closeParen
+Statement statement
+
+ForeachLoopStatement base=Statement
+token keyword
+ForeachLoopList loopList
+Statement statement
+
+ReturnStatement base=Statement
+token returnKeyword
+Expression? returnValue
+token semi
+
+JumpStatement base=Statement
+token breakOrContinue
+token semi
+
+TimingControlStatement base=Statement
+TimingControl timingControl
+Statement statement
+
+ExpressionStatement base=Statement
+Expression expr
+token semi
+
+VoidCastedCallStatement base=Statement
+token voidKeyword
+token apostrophe
+token openParen
+Expression expr
+token closeParen
+token semi
+
+ProceduralAssignStatement base=Statement multiKind=true
+token keyword
+Expression expr
+token semi
+
+ProceduralDeassignStatement base=Statement multiKind=true
+token keyword
+Expression variable
+token semi
+
+DisableStatement base=Statement
+token disable
+Name name
+token semi
+
+DisableForkStatement base=Statement
+token disable
+token fork
+token semi
+
+BlockStatement base=Statement multiKind=true
+token begin
+NamedBlockClause? blockName
+list<SyntaxNode> items
+token end
+NamedBlockClause? endBlockName
+
+WaitStatement base=Statement
+token wait
+token openParen
+Expression expr
+token closeParen
+Statement statement
+
+WaitForkStatement base=Statement
+token wait
+token fork
+token semi
+
+WaitOrderStatement base=Statement
+token wait_order
+token openParen
+separated_list<Name> names
+token closeParen
+ActionBlock action
+
+RandCaseStatement base=Statement
+token randCase
+list<RandCaseItem> items
+token endCase
+
+RandSequenceStatement base=Statement
+token randsequence
+token openParen
+token firstProduction
+token closeParen
+list<Production> productions
+token endsequence
+
+EventTriggerStatement base=Statement multiKind=true
+token trigger
+TimingControl? timing
+Name name
+token semi
+
+CheckerInstanceStatement base=Statement
+CheckerInstantiation instance
+

@@ -1,0 +1,517 @@
+DataDeclaration base=Member
+tokenlist modifiers
+DataType type
+separated_list<Declarator> declarators
+token semi
+
+TypedefDeclaration base=Member
+token typedefKeyword
+DataType type
+token name
+list<VariableDimension> dimensions
+token semi
+
+ForwardTypedefDeclaration base=Member
+token typedefKeyword
+ForwardTypeRestriction? typeRestriction
+token name
+token semi
+
+NetDeclaration base=Member
+token netType
+NetStrength? strength
+token expansionHint
+DataType type
+TimingControl? delay
+separated_list<Declarator> declarators
+token semi
+
+UserDefinedNetDeclaration base=Member
+token netType
+TimingControl delay
+separated_list<Declarator> declarators
+token semi
+
+NetTypeDeclaration base=Member
+token keyword
+DataType type
+token name
+WithFunctionClause? withFunction
+token semi
+
+PackageImportDeclaration base=Member
+token keyword
+separated_list<PackageImportItem> items
+token semi
+
+PackageExportDeclaration base=Member
+token keyword
+separated_list<PackageImportItem> items
+token semi
+
+PackageExportAllDeclaration base=Member
+token keyword
+token star1
+token doubleColon
+token star2
+token semi
+
+ParameterDeclarationStatement base=Member
+ParameterDeclarationBase parameter
+token semi
+
+PortDeclaration base=Member
+PortHeader header
+separated_list<Declarator> declarators
+token semi
+
+GenvarDeclaration base=Member
+token keyword
+separated_list<IdentifierName> identifiers
+token semi
+
+ConcurrentAssertionMember base=Member
+ConcurrentAssertionStatement statement
+
+ImmediateAssertionMember base=Member
+ImmediateAssertionStatement statement
+
+ImplicitAnsiPort base=Member
+PortHeader header
+Declarator declarator
+
+ExplicitAnsiPort base=Member
+token direction
+token dot
+token name
+token openParen
+Expression? expr
+token closeParen
+
+ModuleDeclaration base=Member multiKind=true
+ModuleHeader header
+list<Member> members
+token endmodule
+NamedBlockClause? blockName
+
+AnonymousProgram base=Member
+token keyword
+token semi
+list<Member> members
+token endkeyword
+
+EmptyMember base=Member
+tokenlist qualifiers
+token semi
+
+ProceduralBlock base=Member multiKind=true
+token keyword
+Statement statement
+
+GenerateRegion base=Member
+token keyword
+list<Member> members
+token endgenerate
+
+LoopGenerate base=Member
+token keyword
+token openParen
+token genvar
+token identifier
+token equals
+Expression initialExpr
+token semi1
+Expression stopExpr
+token semi2
+Expression iterationExpr
+token closeParen
+Member block
+
+IfGenerate base=Member
+token keyword
+token openParen
+Expression condition
+token closeParen
+Member block
+ElseClause? elseClause
+
+CaseGenerate base=Member
+token keyword
+token openParen
+Expression condition
+token closeParen
+list<CaseItem> items
+token endCase
+
+GenerateBlock base=Member
+NamedLabel? label
+token begin
+NamedBlockClause? beginName
+list<Member> members
+token end
+NamedBlockClause? endName
+
+TimeUnitsDeclaration base=Member
+token keyword
+token time
+DividerClause? divider
+token semi
+
+HierarchyInstantiation base=Member
+token type
+ParameterValueAssignment? parameters
+separated_list<HierarchicalInstance> instances
+token semi
+
+PrimitiveInstantiation base=Member
+token type
+NetStrength? strength
+TimingControl? delay
+separated_list<HierarchicalInstance> instances
+token semi
+
+CheckerInstantiation base=Member
+Name type
+ParameterValueAssignment? parameters
+separated_list<HierarchicalInstance> instances
+token semi
+
+BindDirective base=Member
+token bind
+Name target
+BindTargetList? targetInstances
+Member instantiation
+
+FunctionDeclaration base=Member multiKind=true
+FunctionPrototype prototype
+token semi
+list<SyntaxNode> items
+token end
+NamedBlockClause? endBlockName
+
+LetDeclaration base=Member
+token let
+token identifier
+AssertionItemPortList? portList
+token equals
+Expression expr
+token semi
+
+ClassDeclaration base=Member
+token virtualOrInterface
+token classKeyword
+ClassSpecifier? finalSpecifier
+token name
+ParameterPortList? parameters
+ExtendsClause? extendsClause
+ImplementsClause? implementsClause
+token semi
+list<Member> items
+token endClass
+NamedBlockClause? endBlockName
+
+ClassPropertyDeclaration base=Member
+tokenlist qualifiers
+Member declaration
+
+ClassMethodDeclaration base=Member
+tokenlist qualifiers
+FunctionDeclaration declaration
+
+ClassMethodPrototype base=Member
+tokenlist qualifiers
+FunctionPrototype prototype
+token semi
+
+ContinuousAssign base=Member
+token assign
+DriveStrength? strength
+TimingControl? delay
+separated_list<Expression> assignments
+token semi
+
+DefParam base=Member
+token defparam
+separated_list<DefParamAssignment> assignments
+token semi
+
+ModportClockingPort base=Member
+token clocking
+token name
+
+ModportSimplePortList base=Member
+token direction
+separated_list<ModportPort> ports
+
+ModportSubroutinePortList base=Member
+token importExport
+separated_list<ModportPort> ports
+
+ModportDeclaration base=Member
+token keyword
+separated_list<ModportItem> items
+token semi
+
+DefaultSkewItem base=Member
+token keyword
+ClockingDirection direction
+token semi
+
+ClockingItem base=Member
+ClockingDirection direction
+separated_list<AttributeSpec> decls
+token semi
+
+ClockingDeclaration base=Member
+token globalOrDefault
+token clocking
+token blockName
+token at
+EventExpression event
+token semi
+list<Member> items
+token endClocking
+NamedBlockClause? endBlockName
+
+DefaultClockingReference base=Member
+token defaultKeyword
+token clocking
+token name
+token semi
+
+DefaultDisableDeclaration base=Member
+token defaultKeyword
+token disableKeyword
+token iffKeyword
+Expression expr
+token semi
+
+DPIImport base=Member
+token keyword
+token specString
+token property
+token c_identifier
+token equals
+FunctionPrototype method
+token semi
+
+DPIExport base=Member
+token keyword
+token specString
+token c_identifier
+token equals
+token functionOrTask
+token name
+token semi
+
+ElabSystemTask base=Member
+token name
+ArgumentList? arguments
+token semi
+
+UdpDeclaration base=Member
+token primitive
+token name
+UdpPortList portList
+UdpBody body
+token endprimitive
+NamedBlockClause? endBlockName
+
+SpecparamDeclaration base=Member
+token keyword
+ImplicitType type
+separated_list<SpecparamDeclarator> declarators
+token semi
+
+PathDeclaration base=Member
+PathDescription desc
+token equals
+token openParen
+separated_list<Expression> delays
+token closeParen
+token semi
+
+ConditionalPathDeclaration base=Member
+token keyword
+token openParen
+Expression predicate
+token closeParen
+PathDeclaration path
+
+IfNonePathDeclaration base=Member
+token keyword
+PathDeclaration path
+
+PulseStyleDeclaration base=Member
+token keyword
+separated_list<Name> inputs
+token semi
+
+SystemTimingCheck base=Member
+token name
+token openParen
+separated_list<TimingCheckArg> args
+token closeParen
+token semi
+
+SpecifyBlock base=Member
+token specify
+list<Member> items
+token endspecify
+
+NetAlias base=Member
+token keyword
+separated_list<Expression> nets
+token semi
+
+ExternModuleDecl base=Member
+token externKeyword
+list<AttributeInstance> actualAttributes
+ModuleHeader header
+
+ExternUdpDecl base=Member
+token externKeyword
+list<AttributeInstance> actualAttributes
+token primitive
+token name
+UdpPortList portList
+
+ExternInterfaceMethod base=Member
+token externKeyword
+token forkJoin
+FunctionPrototype prototype
+token semi
+
+ConstraintPrototype base=Member
+tokenlist qualifiers
+token keyword
+list<ClassSpecifier> specifiers
+Name name
+token semi
+
+ConstraintDeclaration base=Member
+tokenlist qualifiers
+token keyword
+list<ClassSpecifier> specifiers
+Name name
+ConstraintBlock block
+
+CovergroupDeclaration base=Member
+token covergroup
+token extends
+token name
+FunctionPortList? portList
+SyntaxNode? event
+token semi
+list<Member> members
+token endgroup
+NamedBlockClause? endBlockName
+
+CoverageOption base=Member
+Expression expr
+token semi
+
+Coverpoint base=Member
+DataType type
+NamedLabel? label
+token coverpoint
+Expression expr
+CoverageIffClause? iff
+token openBrace
+list<Member> members
+token closeBrace
+token emptySemi
+
+CoverageBins base=Member
+token wildcard
+token keyword
+token name
+CoverageBinsArraySize? size
+token equals
+CoverageBinInitializer initializer
+CoverageIffClause? iff
+token semi
+
+CoverCross base=Member
+NamedLabel? label
+token cross
+separated_list<IdentifierName> items
+CoverageIffClause? iff
+token openBrace
+list<Member> members
+token closeBrace
+token emptySemi
+
+BinsSelection base=Member
+token keyword
+token name
+token equals
+BinsSelectExpression expr
+CoverageIffClause? iff
+token semi
+
+LocalVariableDeclaration base=Member
+token var
+DataType type
+separated_list<Declarator> declarators
+token semi
+
+PropertyDeclaration base=Member
+token keyword
+token name
+AssertionItemPortList? portList
+token semi
+list<LocalVariableDeclaration> variables
+PropertySpec propertySpec
+token optionalSemi
+token end
+NamedBlockClause? endBlockName
+
+SequenceDeclaration base=Member
+token keyword
+token name
+AssertionItemPortList? portList
+token semi
+list<LocalVariableDeclaration> variables
+SequenceExpr seqExpr
+token optionalSemi
+token end
+NamedBlockClause? endBlockName
+
+CheckerDeclaration base=Member
+token keyword
+token name
+AssertionItemPortList? portList
+token semi
+list<Member> members
+token end
+NamedBlockClause? endBlockName
+
+CheckerDataDeclaration base=Member
+token rand
+DataDeclaration data
+
+ConfigDeclaration base=Member
+token config
+token name
+token semi1
+list<ParameterDeclarationStatement> localparams
+token design
+list<ConfigCellIdentifier> topCells
+token semi2
+list<ConfigRule> rules
+token endconfig
+NamedBlockClause? blockName
+
+LibraryDeclaration base=Member
+token library
+token name
+separated_list<FilePathSpec> filePaths
+LibraryIncDirClause? incDirClause
+token semi
+
+LibraryIncludeStatement base=Member
+token include
+FilePathSpec filePath
+token semi
+

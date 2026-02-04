@@ -1,0 +1,8 @@
+IntegerType base=DataType multiKind=true
+KeywordType base=DataType multiKind=true
+NamedType base=DataType
+StructUnionType base=DataType multiKind=true
+EnumType base=DataType
+TypeReference base=DataType
+VirtualInterfaceType base=DataType
+ImplicitType base=DataType

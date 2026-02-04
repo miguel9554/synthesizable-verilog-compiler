@@ -1,0 +1,8 @@
+AssignmentPatternExpression base=PrimaryExpression
+LiteralExpression base=PrimaryExpression multiKind=true
+IntegerVectorExpression base=PrimaryExpression
+EmptyQueueExpression base=PrimaryExpression
+ConcatenationExpression base=PrimaryExpression
+MultipleConcatenationExpression base=PrimaryExpression
+StreamingConcatenationExpression base=PrimaryExpression
+ParenthesizedExpression base=PrimaryExpression
