@@ -409,7 +409,15 @@ DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
         return graph.constant(static_cast<int64_t>(lit->evaluate()));
     }
     else if (auto* namedRef = dynamic_cast<const NamedReferenceNode*>(node)){
-        return graph.input(namedRef->getName());
+        // If it's an input, return the node
+        // If it's an output, also?
+        // "internal" nodes to the DFG are not allowed *yet*.
+        // They would require parsing an internal signal declaration.
+        const auto name = namedRef->getName();
+        if (graph.inputs.contains(name)) return graph.inputs[name];
+        if (graph.outputs.contains(name)) return graph.outputs[name]->in[0];
+        // TODO should we always create the input?
+        return graph.input(name);
     }
     else if (auto* binary = dynamic_cast<const BinaryNode*>(node)){
         auto* left = exprTreeToDFGNode(graph, binary->left.get());
@@ -435,10 +443,12 @@ DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
     }
 }
 
-std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name){
-    auto graph = std::make_unique<DFG>();
+std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name, std::unique_ptr<DFG> graph){
+    if (!graph){
+        graph = std::make_unique<DFG>();
+    }
     auto outputNode = exprTreeToDFGNode(*graph, node);
-    graph->output(outputNode, name);
+    graph->output(outputNode, name, true);
     return graph;
 }
 
@@ -451,6 +461,7 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
     auto& seqStatement = statement->as<BlockStatementSyntax>();
+    auto graph = std::make_unique<DFG>();
     for (const auto& item: seqStatement.items){
         // if (!isInList(item->kind, synthesizableStatements)){
         if (item->kind != SyntaxKind::ExpressionStatement){
@@ -462,8 +473,6 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         switch (expr->kind) {
             case SyntaxKind::AssignmentExpression:
                 {
-                    std::cout << "We are on an assignment statement." << std::endl;
-                    std::cout << expr->toString() << std::endl;
                     const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
                     const auto& left = assignExpr.left;
                     const auto& right = assignExpr.right;
@@ -474,7 +483,7 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
                     const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
                     const std::string name(identifier.identifier.valueText());
                     const auto exprTree = buildExprTree(right);
-                    const auto graph = exprTreeToDFG(exprTree.get(), name);
+                    graph = exprTreeToDFG(exprTree.get(), name, std::move(graph));
                     break;
                 }
             default: {
@@ -484,7 +493,7 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
             }
         }
     }
-    return nullptr;
+    return graph;
 }
 
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "types.h"
+#include "dfg.h"
 
 namespace custom_hdl {
 
@@ -81,7 +82,7 @@ struct ResolvedTypes {
     using Assign = std::unique_ptr<ExprNode>;
     // Same as in unresolved IR
     using ProceduralTiming = UnresolvedTypes::ProceduralTiming;
-    using ProceduralCombo = UnresolvedTypes::ProceduralCombo;
+    using ProceduralCombo = std::unique_ptr<DFG>;
     using Hierarchy = UnresolvedTypes::Hierarchy;
 };
 

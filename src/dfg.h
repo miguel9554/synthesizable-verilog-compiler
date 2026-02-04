@@ -68,14 +68,15 @@ struct DFG {
         return nodes.back().get();
     }
 
-    DFGNode* output(DFGNode* a, const std::string& name) {
+    // An output can be recreated, if it's assigned again.
+    DFGNode* output(DFGNode* a, const std::string& name, bool rename) {
         auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, name);
         n->in = {a};
         nodes.push_back(std::move(n));
         auto result = outputs.insert({name, nodes.back().get()});
         if (!result.second) {
-            // Key already exists - insertion failed
-            throw std::runtime_error(std::format("Output {} already exists", name));
+            if (!rename) throw std::runtime_error(std::format("Output {} already exists", name));
+            outputs[name] = nodes.back().get();
         }
         return nodes.back().get();
     }
