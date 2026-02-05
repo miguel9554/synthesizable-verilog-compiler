@@ -64,6 +64,13 @@ void ResolvedParam::print(std::ostream& os) const {
 
 namespace {
 
+// Forward declaration
+ResolvedTypes::ProceduralCombo resolveStatement(
+        const slang::syntax::StatementSyntax* statement,
+        std::unique_ptr<DFG> graph
+);
+
+
 // Evaluate a constant expression given a parameter context
 // Throws if a referenced parameter is not in the context
 int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContext& ctx) {
@@ -537,17 +544,33 @@ std::unique_ptr<DFG> resolveConditionalStatement(
     // construct the signal node for the predicate expression
     auto predicateExprTree = buildExprTree(predicateExpr);
     auto conditionNode = exprTreeToDFGNode(*graph, predicateExprTree.get());
-    // const auto expressionTakenBranch = conditionalStatement->statement->as<>;
-    // auto graphTakenBranch = resolveExpressionStatement();
+
+    // Save the actual driver nodes, not the output node pointers
+    // (output nodes get modified in place when replaced)
+    std::unordered_map<std::string, DFGNode*> oldDrivers;
+    for (const auto& [outName, outNode] : graph->outputs) {
+        if (!outNode->in.empty()) {
+            oldDrivers[outName] = outNode->in[0];
+        }
+    }
+
+    graph = resolveStatement(conditionalStatement->statement, std::move(graph));
+
+    for (const auto& [outName, outNode] : graph->outputs) {
+        auto it = oldDrivers.find(outName);
+        if (it != oldDrivers.end() && !outNode->in.empty()) {
+            DFGNode* oldDriver = it->second;
+            DFGNode* newDriver = outNode->in[0];
+            if (oldDriver != newDriver) {
+                // Add the mux!
+                const auto& muxOut = graph->mux(conditionNode, newDriver, oldDriver);
+                graph->output(muxOut, outName, true);
+            }
+        }
+    }
 
     return graph;
 }
-
-// Forward declaration
-ResolvedTypes::ProceduralCombo resolveStatement(
-        const slang::syntax::StatementSyntax* statement,
-        std::unique_ptr<DFG> graph
-);
 
 ResolvedTypes::ProceduralCombo resolveSequentialBlockStatement(
         const slang::syntax::BlockStatementSyntax* seqStatement,
