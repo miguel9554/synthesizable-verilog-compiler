@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <set>
 #include <span>
 #include <stdexcept>
 
@@ -16,6 +17,44 @@ using namespace slang::syntax;
 using namespace custom_hdl;
 
 namespace {
+
+// Visitor to find flop names (LHS of non-blocking assignments)
+class FlopFinderVisitor : public SyntaxVisitor<FlopFinderVisitor> {
+public:
+    std::set<std::string> flopNames;
+
+    void handle(const BinaryExpressionSyntax& node) {
+        if (node.kind == SyntaxKind::NonblockingAssignmentExpression) {
+            extractLhsName(node.left);
+        }
+        visitDefault(node);
+    }
+
+private:
+    void extractLhsName(const ExpressionSyntax* expr) {
+        if (!expr) return;
+
+        switch (expr->kind) {
+            case SyntaxKind::IdentifierName: {
+                auto& id = expr->as<IdentifierNameSyntax>();
+                flopNames.insert(std::string(id.identifier.valueText()));
+                break;
+            }
+            // TODO here we are assuming *all* elements are flops
+            // I guess we could catch later with structural checking: all
+            // d signals should be assigned.
+            case SyntaxKind::IdentifierSelectName: {
+                // e.g., arr[i] <= value; or sig[7:0] <= value;
+                // Extract the base identifier recursively
+                auto& select = expr->as<IdentifierSelectNameSyntax>();
+                flopNames.insert(std::string(select.identifier.valueText()));
+                break;
+            }
+            default:
+                throw std::runtime_error("Not supported in NB assign: " + std::string(toString(expr->kind)));
+        }
+    }
+};
 
 // Visitor class that builds our custom IR from slang syntax tree
 class IRBuilderVisitor : public SyntaxVisitor<IRBuilderVisitor> {
@@ -77,6 +116,53 @@ public:
                 throw std::runtime_error(
                     "Disallowed module member: " + std::string(toString(member->kind))
                 );
+            }
+        }
+
+        // Find flops by scanning for non-blocking assignments
+        FlopFinderVisitor flopFinder;
+        node.visit(flopFinder);
+
+        // Process each found flop
+        for (const auto& flopName : flopFinder.flopNames) {
+            // Try to find in signals
+            auto sigIt = std::find_if(currentModule->signals.begin(),
+                                       currentModule->signals.end(),
+                                       [&](const auto& s) { return s.name == flopName; });
+
+            // Try to find in outputs
+            auto outIt = std::find_if(currentModule->outputs.begin(),
+                                       currentModule->outputs.end(),
+                                       [&](const auto& o) { return o.name == flopName; });
+
+            if (sigIt == currentModule->signals.end() && outIt == currentModule->outputs.end()) {
+                throw std::runtime_error("Flop '" + flopName + "' not found in signals or outputs");
+            }
+
+            // Get the flop's type info from whichever list it was found in
+            UnresolvedSignal flopSignal = (sigIt != currentModule->signals.end()) ? *sigIt : *outIt;
+
+            // Add to flops list
+            currentModule->flops.push_back(flopSignal);
+
+            // Create .d and .q signals with same type
+            UnresolvedSignal dSignal = flopSignal;
+            dSignal.name = flopName + ".d";
+            UnresolvedSignal qSignal = flopSignal;
+            qSignal.name = flopName + ".q";
+
+            currentModule->signals.push_back(std::move(dSignal));
+            currentModule->signals.push_back(std::move(qSignal));
+
+            // If it was a signal (not output), remove from signals list
+            if (sigIt != currentModule->signals.end()) {
+                // Need to re-find since we may have invalidated iterator by push_back
+                auto removeIt = std::find_if(currentModule->signals.begin(),
+                                              currentModule->signals.end(),
+                                              [&](const auto& s) { return s.name == flopName; });
+                if (removeIt != currentModule->signals.end()) {
+                    currentModule->signals.erase(removeIt);
+                }
             }
         }
 
