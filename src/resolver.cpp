@@ -10,8 +10,11 @@
 #include <atomic>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <ostream>
+#include <set>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 using namespace slang::syntax;
@@ -734,6 +737,162 @@ std::unique_ptr<DFG> resolveConditionalStatement(
     return graph;
 }
 
+std::unique_ptr<DFG> resolveCaseStatement(
+        const CaseStatementSyntax* caseStatement,
+        std::unique_ptr<DFG> graph,
+        bool is_sequential) {
+
+    if (caseStatement->uniqueOrPriority) {
+        throw std::runtime_error("unique/priority case not supported");
+    }
+
+    // Only support basic 'case', not casez/casex
+    auto caseKeyword = caseStatement->caseKeyword.kind;
+    if (caseKeyword == slang::parsing::TokenKind::CaseZKeyword) {
+        throw std::runtime_error("casez not supported");
+    }
+    if (caseKeyword == slang::parsing::TokenKind::CaseXKeyword) {
+        throw std::runtime_error("casex not supported");
+    }
+
+    // Build the selector expression node
+    auto selectorExprTree = buildExprTree(caseStatement->expr);
+    auto selectorNode = exprTreeToDFGNode(*graph, selectorExprTree.get());
+
+    auto getDrivers = [](const DFG& g) {
+        std::unordered_map<std::string, DFGNode*> drivers;
+        for (const auto& [outName, outNode] : g.outputs) {
+            if (!outNode->in.empty()) {
+                drivers[outName] = outNode->in[0];
+            }
+        }
+        return drivers;
+    };
+
+    const auto fallbackDrivers = getDrivers(*graph);
+
+    // Collect info for each case
+    struct CaseInfo {
+        DFGNode* condition;  // selector == value
+        std::unordered_map<std::string, DFGNode*> drivers;
+    };
+    std::vector<CaseInfo> normalCases;
+    std::optional<std::unordered_map<std::string, DFGNode*>> defaultDrivers;
+
+    for (const auto* item : caseStatement->items) {
+        if (item->kind == SyntaxKind::DefaultCaseItem) {
+            const auto& defaultItem = item->as<DefaultCaseItemSyntax>();
+            // Reset to fallback state before processing
+            for (const auto& [name, driver] : fallbackDrivers) {
+                graph->output(driver, name, true);
+            }
+            graph = resolveStatement(&defaultItem.clause->as<StatementSyntax>(), std::move(graph), is_sequential);
+            defaultDrivers = getDrivers(*graph);
+        } else if (item->kind == SyntaxKind::StandardCaseItem) {
+            const auto& caseItem = item->as<StandardCaseItemSyntax>();
+
+            if (caseItem.expressions.size() != 1) {
+                throw std::runtime_error("Multiple expressions per case item not yet supported");
+            }
+
+            // Build condition: selector == case_value
+            auto caseValueTree = buildExprTree(caseItem.expressions[0]);
+            auto caseValueNode = exprTreeToDFGNode(*graph, caseValueTree.get());
+            auto conditionNode = graph->eq(selectorNode, caseValueNode);
+
+            // Reset to fallback state before processing
+            for (const auto& [name, driver] : fallbackDrivers) {
+                graph->output(driver, name, true);
+            }
+
+            // Process case body
+            graph = resolveStatement(&caseItem.clause->as<StatementSyntax>(), std::move(graph), is_sequential);
+            normalCases.push_back({conditionNode, getDrivers(*graph)});
+        } else {
+            throw std::runtime_error(
+                "Unsupported case item kind: " + std::string(toString(item->kind)));
+        }
+    }
+
+    // Collect all signals that were assigned in any case
+    std::set<std::string> assignedSignals;
+    for (const auto& c : normalCases) {
+        for (const auto& [name, driver] : c.drivers) {
+            auto it = fallbackDrivers.find(name);
+            if (it == fallbackDrivers.end() || driver != it->second) {
+                assignedSignals.insert(name);
+            }
+        }
+    }
+    if (defaultDrivers) {
+        for (const auto& [name, driver] : *defaultDrivers) {
+            auto it = fallbackDrivers.find(name);
+            if (it == fallbackDrivers.end() || driver != it->second) {
+                assignedSignals.insert(name);
+            }
+        }
+    }
+
+    // Build MUX for each assigned signal
+    for (const auto& signalName : assignedSignals) {
+        std::vector<DFGNode*> selectors;
+        std::vector<DFGNode*> dataValues;
+
+        // Determine default/fallback value for this signal
+        DFGNode* defaultValue = nullptr;
+        if (defaultDrivers) {
+            auto it = defaultDrivers->find(signalName);
+            if (it != defaultDrivers->end()) {
+                defaultValue = it->second;
+            }
+        }
+        if (!defaultValue) {
+            auto it = fallbackDrivers.find(signalName);
+            if (it != fallbackDrivers.end()) {
+                defaultValue = it->second;
+            }
+        }
+
+        // Collect selectors and data values from each case
+        for (const auto& c : normalCases) {
+            auto it = c.drivers.find(signalName);
+            DFGNode* caseValue;
+            if (it != c.drivers.end()) {
+                caseValue = it->second;
+            } else if (defaultValue) {
+                caseValue = defaultValue;
+            } else {
+                throw std::runtime_error(
+                    "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback");
+            }
+
+            selectors.push_back(c.condition);
+            dataValues.push_back(caseValue);
+        }
+
+        DFGNode* result;
+        if (defaultValue) {
+            // Has default: use chain of 2:1 MUXes to handle "no match" case
+            // Each MUX: if selector[i] matches, use dataValues[i], else use previous result
+            result = defaultValue;
+            for (size_t i = 0; i < selectors.size(); ++i) {
+                result = graph->mux(selectors[i], dataValues[i], result);
+            }
+        } else {
+            // No default: use MUX_N directly (assumes cases are exhaustive/one-hot)
+            if (selectors.size() == 1) {
+                result = dataValues[0];
+            } else {
+                result = graph->muxN(selectors, dataValues);
+            }
+        }
+
+        graph->output(result, signalName, true);
+    }
+
+    return graph;
+}
+
 ResolvedTypes::ProceduralCombo resolveSequentialBlockStatement(
         const slang::syntax::BlockStatementSyntax* seqStatement,
         std::unique_ptr<DFG> graph,
@@ -767,7 +926,12 @@ ResolvedTypes::ProceduralCombo resolveStatement(
             const auto& conditionalStatement = statement->as<ConditionalStatementSyntax>();
             graph = resolveConditionalStatement(&conditionalStatement, std::move(graph), is_sequential);
             break;
-          }
+        }
+        case SyntaxKind::CaseStatement:{
+            const auto& caseStmt = statement->as<CaseStatementSyntax>();
+            graph = resolveCaseStatement(&caseStmt, std::move(graph), is_sequential);
+            break;
+        }
 
         default:
             throw std::runtime_error(

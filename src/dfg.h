@@ -27,6 +27,7 @@ enum class DFGOp {
     GT,         // Greater than (>)
     GE,         // Greater or equal (>=)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
+    MUX_N,      // N:1 mux: in[0..N-1]=selectors, in[N..2N-1]=data values (one-hot select)
     ASSIGN,     // Assignment with expression tree (data: unique_ptr<ExprNode>)
     // Unary ops (single input)
     UNARY_PLUS,
@@ -218,6 +219,31 @@ struct DFG {
         return nodes.back().get();
     }
 
+    // N:1 mux with one-hot selectors
+    // selectors[i] active => output = data[i]
+    DFGNode* muxN(const std::vector<DFGNode*>& selectors,
+                  const std::vector<DFGNode*>& data,
+                  const std::string& name = "") {
+        if (selectors.size() != data.size()) {
+            throw std::runtime_error("muxN: selectors and data must have same size");
+        }
+        if (selectors.empty()) {
+            throw std::runtime_error("muxN: must have at least one input");
+        }
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::MUX_N)
+            : std::make_unique<DFGNode>(DFGOp::MUX_N, name);
+        // Layout: selectors first, then data
+        n->in.reserve(selectors.size() + data.size());
+        for (auto* s : selectors) n->in.push_back(s);
+        for (auto* d : data) n->in.push_back(d);
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
     // Helper for unary operations (single input)
     DFGNode* unaryOp(DFGOp op, DFGNode* a, const std::string& name = "") {
         auto n = name.empty()
@@ -308,6 +334,7 @@ struct DFG {
                 case DFGOp::GT:  ss << ">"; break;
                 case DFGOp::GE:  ss << ">="; break;
                 case DFGOp::MUX: ss << "MUX"; break;
+                case DFGOp::MUX_N: ss << "MUX_N"; break;
                 case DFGOp::ASSIGN: ss << "ASSIGN"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
                 case DFGOp::UNARY_NEGATE: ss << "-"; break;
