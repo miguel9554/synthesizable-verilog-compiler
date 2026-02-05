@@ -642,12 +642,17 @@ std::unique_ptr<DFG> resolveExpressionStatement(
     const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
     const auto& left = assignExpr.left;
     const auto& right = assignExpr.right;
-    if (left->kind != SyntaxKind::IdentifierName) {
+    std::string name;
+    if (left->kind == SyntaxKind::IdentifierName) {
+        const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
+        name = identifier.identifier.valueText();
+    } else if (left->kind == SyntaxKind::IdentifierSelectName) {
+        const auto& identifier = left->as<IdentifierSelectNameSyntax>();
+        name = std::string(identifier.identifier.valueText())+std::string(identifier.selectors.toString());
+    } else {
         throw std::runtime_error(
         "Left can only be variable name: " + std::string(toString(left->kind)));
     }
-    const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
-    const std::string name(identifier.identifier.valueText());
     const auto exprTree = buildExprTree(right);
     return exprTreeToDFG(exprTree.get(), name, std::move(graph));
 }
