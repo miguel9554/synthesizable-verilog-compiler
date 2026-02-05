@@ -160,4 +160,27 @@ struct ResolvedSignal;
         }
     };
 
+    // Ternary conditional: condition ? trueExpr : falseExpr
+    class TernaryNode : public ExprNode {
+    public:
+        std::unique_ptr<ExprNode> condition;
+        std::unique_ptr<ExprNode> trueExpr;
+        std::unique_ptr<ExprNode> falseExpr;
+        TernaryNode(std::unique_ptr<ExprNode> cond,
+                    std::unique_ptr<ExprNode> t,
+                    std::unique_ptr<ExprNode> f)
+            : condition(std::move(cond)), trueExpr(std::move(t)), falseExpr(std::move(f)) {}
+        double evaluate() const override {
+            return (condition->evaluate() != 0.0) ? trueExpr->evaluate() : falseExpr->evaluate();
+        }
+        std::string toJson(int indent = 0) const override {
+            return indentStr(indent) + "{\n" +
+                   indentStr(indent + 1) + R"("type": "Ternary",)" + "\n" +
+                   indentStr(indent + 1) + "\"condition\":\n" + condition->toJson(indent + 1) + ",\n" +
+                   indentStr(indent + 1) + "\"trueExpr\":\n" + trueExpr->toJson(indent + 1) + ",\n" +
+                   indentStr(indent + 1) + "\"falseExpr\":\n" + falseExpr->toJson(indent + 1) + "\n" +
+                   indentStr(indent) + "}";
+        }
+    };
+
 } // namespace custom_hdl

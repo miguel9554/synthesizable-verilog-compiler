@@ -495,6 +495,20 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
                 BinaryOp::GE);
         }
 
+        case SyntaxKind::ConditionalExpression: {
+            auto& cond = expr->as<ConditionalExpressionSyntax>();
+            if (cond.predicate->conditions.size() != 1) {
+                throw std::runtime_error("Only single condition supported in ternary expression");
+            }
+            if (cond.predicate->conditions[0]->matchesClause) {
+                throw std::runtime_error("matches clause not supported in ternary expression");
+            }
+            return std::make_unique<TernaryNode>(
+                buildExprTree(cond.predicate->conditions[0]->expr),
+                buildExprTree(cond.left),
+                buildExprTree(cond.right));
+        }
+
         default:
             throw std::runtime_error(
                 "Unsupported expression kind in expression tree: " +
@@ -591,6 +605,12 @@ DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
                 return graph.reductionXnor(operand);
         }
         throw std::runtime_error("Unknown UnaryOp");
+    }
+    else if (auto* ternary = dynamic_cast<const TernaryNode*>(node)){
+        auto* cond = exprTreeToDFGNode(graph, ternary->condition.get());
+        auto* trueVal = exprTreeToDFGNode(graph, ternary->trueExpr.get());
+        auto* falseVal = exprTreeToDFGNode(graph, ternary->falseExpr.get());
+        return graph.mux(cond, trueVal, falseVal);
     }
     else {
         // Catches ReferenceNode and any other unsupported types
