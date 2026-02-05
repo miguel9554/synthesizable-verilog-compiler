@@ -16,6 +16,7 @@ enum class DFGOp {
     INPUT,      // Primary input signal
     OUTPUT,     // Primary output signal
     CONST,      // Constant value (data: int64_t)
+    // Binary ops
     ADD,
     SUB,
     MUL,
@@ -27,6 +28,17 @@ enum class DFGOp {
     GE,         // Greater or equal (>=)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
     ASSIGN,     // Assignment with expression tree (data: unique_ptr<ExprNode>)
+    // Unary ops (single input)
+    UNARY_PLUS,
+    UNARY_NEGATE,
+    BITWISE_NOT,
+    LOGICAL_NOT,
+    REDUCTION_AND,
+    REDUCTION_NAND,
+    REDUCTION_OR,
+    REDUCTION_NOR,
+    REDUCTION_XOR,
+    REDUCTION_XNOR,
 };
 
 struct DFGNode {
@@ -206,6 +218,59 @@ struct DFG {
         return nodes.back().get();
     }
 
+    // Helper for unary operations (single input)
+    DFGNode* unaryOp(DFGOp op, DFGNode* a, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(op)
+            : std::make_unique<DFGNode>(op, name);
+        n->in = {a};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
+    DFGNode* unaryPlus(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::UNARY_PLUS, a, name);
+    }
+
+    DFGNode* unaryNegate(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::UNARY_NEGATE, a, name);
+    }
+
+    DFGNode* bitwiseNot(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::BITWISE_NOT, a, name);
+    }
+
+    DFGNode* logicalNot(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::LOGICAL_NOT, a, name);
+    }
+
+    DFGNode* reductionAnd(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_AND, a, name);
+    }
+
+    DFGNode* reductionNand(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_NAND, a, name);
+    }
+
+    DFGNode* reductionOr(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_OR, a, name);
+    }
+
+    DFGNode* reductionNor(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_NOR, a, name);
+    }
+
+    DFGNode* reductionXor(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_XOR, a, name);
+    }
+
+    DFGNode* reductionXnor(DFGNode* a, const std::string& name = "") {
+        return unaryOp(DFGOp::REDUCTION_XNOR, a, name);
+    }
+
     std::string toDot(const std::string& graphName = "DFG") const {
         std::ostringstream ss;
         ss << "digraph " << graphName << " {\n";
@@ -244,6 +309,16 @@ struct DFG {
                 case DFGOp::GE:  ss << ">="; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::ASSIGN: ss << "ASSIGN"; break;
+                case DFGOp::UNARY_PLUS: ss << "+"; break;
+                case DFGOp::UNARY_NEGATE: ss << "-"; break;
+                case DFGOp::BITWISE_NOT: ss << "~"; break;
+                case DFGOp::LOGICAL_NOT: ss << "!"; break;
+                case DFGOp::REDUCTION_AND: ss << "&"; break;
+                case DFGOp::REDUCTION_NAND: ss << "~&"; break;
+                case DFGOp::REDUCTION_OR: ss << "|"; break;
+                case DFGOp::REDUCTION_NOR: ss << "~|"; break;
+                case DFGOp::REDUCTION_XOR: ss << "^"; break;
+                case DFGOp::REDUCTION_XNOR: ss << "~^"; break;
             }
 
             ss << "\"];\n";

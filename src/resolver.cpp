@@ -6,6 +6,7 @@
 #include "slang/syntax/SyntaxNode.h"
 #include "types.h"
 
+#include <algorithm>
 #include <atomic>
 #include <iostream>
 #include <memory>
@@ -69,7 +70,8 @@ namespace {
 // Forward declaration
 ResolvedTypes::ProceduralCombo resolveStatement(
         const slang::syntax::StatementSyntax* statement,
-        std::unique_ptr<DFG> graph
+        std::unique_ptr<DFG> graph,
+        bool is_sequential
 );
 
 
@@ -327,6 +329,36 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
             return std::make_unique<LiteralNode>(value);
         }
 
+        case SyntaxKind::IntegerVectorExpression: {
+            auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
+            // size is optional (e.g., 'hFF vs 8'hFF)
+            // base is required (e.g., 'h, 'b, 'd, 'o)
+            // value is the actual digits
+
+            std::string sizeText(vecExpr.size.rawText());
+            std::string baseText(vecExpr.base.rawText());
+            std::string valueText(vecExpr.value.rawText());
+            std::string literal = sizeText + baseText + valueText;
+
+            // Remove underscores from value (Verilog allows 8'hFF_FF)
+            valueText.erase(std::remove(valueText.begin(), valueText.end(), '_'), valueText.end());
+
+            int base = 10;
+            if (baseText.find('h') != std::string::npos || baseText.find('H') != std::string::npos) {
+                base = 16;
+            } else if (baseText.find('b') != std::string::npos || baseText.find('B') != std::string::npos) {
+                base = 2;
+            } else if (baseText.find('o') != std::string::npos || baseText.find('O') != std::string::npos) {
+                base = 8;
+            } else if (baseText.find('d') != std::string::npos || baseText.find('D') != std::string::npos) {
+                base = 10;
+            }
+
+            int64_t value = std::stoll(valueText, nullptr, base);
+            std::cout << "IntegerVectorExpression: " << literal << " -> " << value << std::endl;
+            return std::make_unique<LiteralNode>(static_cast<double>(value));
+        }
+
         case SyntaxKind::IdentifierName: {
             auto& name = expr->as<IdentifierNameSyntax>();
             std::string signalName(name.identifier.valueText());
@@ -346,6 +378,46 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
         case SyntaxKind::UnaryMinusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
             return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::NEGATE);
+        }
+
+        case SyntaxKind::UnaryBitwiseAndExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_AND);
+        }
+
+        case SyntaxKind::UnaryBitwiseNandExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NAND);
+        }
+
+        case SyntaxKind::UnaryBitwiseOrExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_OR);
+        }
+
+        case SyntaxKind::UnaryBitwiseNorExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NOR);
+        }
+
+        case SyntaxKind::UnaryBitwiseXorExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_XOR);
+        }
+
+        case SyntaxKind::UnaryBitwiseXnorExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_XNOR);
+        }
+
+        case SyntaxKind::UnaryLogicalNotExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::LOGICAL_NOT);
+        }
+
+        case SyntaxKind::UnaryBitwiseNotExpression: {
+            auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
+            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NOT);
         }
 
         case SyntaxKind::AddExpression: {
@@ -491,8 +563,31 @@ DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
         }
         throw std::runtime_error("Unknown BinaryOp");
     }
-    else if (dynamic_cast<const UnaryNode*>(node)){
-        throw std::runtime_error("Unary operations not yet supported in DFG");
+    else if (auto* unary = dynamic_cast<const UnaryNode*>(node)){
+        auto* operand = exprTreeToDFGNode(graph, unary->operand.get());
+        switch(unary->op) {
+            case UnaryOp::PLUS:
+                return graph.unaryPlus(operand);
+            case UnaryOp::NEGATE:
+                return graph.unaryNegate(operand);
+            case UnaryOp::BITWISE_NOT:
+                return graph.bitwiseNot(operand);
+            case UnaryOp::LOGICAL_NOT:
+                return graph.logicalNot(operand);
+            case UnaryOp::BITWISE_AND:
+                return graph.reductionAnd(operand);
+            case UnaryOp::BITWISE_NAND:
+                return graph.reductionNand(operand);
+            case UnaryOp::BITWISE_OR:
+                return graph.reductionOr(operand);
+            case UnaryOp::BITWISE_NOR:
+                return graph.reductionNor(operand);
+            case UnaryOp::BITWISE_XOR:
+                return graph.reductionXor(operand);
+            case UnaryOp::BITWISE_XNOR:
+                return graph.reductionXnor(operand);
+        }
+        throw std::runtime_error("Unknown UnaryOp");
     }
     else {
         // Catches ReferenceNode and any other unsupported types
@@ -512,9 +607,12 @@ std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name,
 
 std::unique_ptr<DFG> resolveExpressionStatement(
         const ExpressionStatementSyntax* exprStatement,
-        std::unique_ptr<DFG> graph){
+        std::unique_ptr<DFG> graph,
+        bool is_sequential){
     auto& expr = exprStatement->expr;
-    if (expr->kind != SyntaxKind::AssignmentExpression){
+    const auto expectedKind = is_sequential ? SyntaxKind::NonblockingAssignmentExpression :
+                                              SyntaxKind::AssignmentExpression;
+    if (expr->kind != expectedKind){
         throw std::runtime_error(
         "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
     }
@@ -533,7 +631,8 @@ std::unique_ptr<DFG> resolveExpressionStatement(
 
 std::unique_ptr<DFG> resolveConditionalStatement(
         const ConditionalStatementSyntax* conditionalStatement,
-        std::unique_ptr<DFG> graph){
+        std::unique_ptr<DFG> graph,
+        bool is_sequential){
     const auto& predicate = conditionalStatement->predicate;
     if (conditionalStatement->uniqueOrPriority){
         throw std::runtime_error("Unique/priority not supported on if");
@@ -565,12 +664,12 @@ std::unique_ptr<DFG> resolveConditionalStatement(
         // TODO should check if this is a statement.
         const auto& elseClause = conditionalStatement->elseClause->clause;
         const auto& elseStatement = elseClause->as<StatementSyntax>();
-        graph = resolveStatement(&elseStatement, std::move(graph));
+        graph = resolveStatement(&elseStatement, std::move(graph), is_sequential);
     }
 
     const auto elseDrivers = getDrivers(*graph);
 
-    graph = resolveStatement(conditionalStatement->statement, std::move(graph));
+    graph = resolveStatement(conditionalStatement->statement, std::move(graph), is_sequential);
 
     // Assign MUXes for signals that ARE assigned on IF branch
     for (const auto& [outName, outNode] : graph->outputs) {
@@ -637,34 +736,36 @@ std::unique_ptr<DFG> resolveConditionalStatement(
 
 ResolvedTypes::ProceduralCombo resolveSequentialBlockStatement(
         const slang::syntax::BlockStatementSyntax* seqStatement,
-        std::unique_ptr<DFG> graph
+        std::unique_ptr<DFG> graph,
+        bool is_sequential
 ){
     for (const auto* item: seqStatement->items){
         // TODO should catch if this fails...
         const auto& statement = item->as<StatementSyntax>();
-        graph = resolveStatement(&statement, std::move(graph));
+        graph = resolveStatement(&statement, std::move(graph), is_sequential);
     }
     return graph;
 }
 
 ResolvedTypes::ProceduralCombo resolveStatement(
         const slang::syntax::StatementSyntax* statement,
-        std::unique_ptr<DFG> graph
+        std::unique_ptr<DFG> graph,
+        bool is_sequential
 ){
     switch (statement->kind){
         case SyntaxKind::SequentialBlockStatement:{
             const auto& seqStatement = statement->as<BlockStatementSyntax>();
-            graph = resolveSequentialBlockStatement(&seqStatement, std::move(graph));
+            graph = resolveSequentialBlockStatement(&seqStatement, std::move(graph), is_sequential);
             break;
         }
         case SyntaxKind::ExpressionStatement:{
             const auto& exprStatement = statement->as<ExpressionStatementSyntax>();
-            graph = resolveExpressionStatement(&exprStatement, std::move(graph));
+            graph = resolveExpressionStatement(&exprStatement, std::move(graph), is_sequential);
             break;
         }
         case SyntaxKind::ConditionalStatement:{
             const auto& conditionalStatement = statement->as<ConditionalStatementSyntax>();
-            graph = resolveConditionalStatement( &conditionalStatement, std::move(graph));
+            graph = resolveConditionalStatement(&conditionalStatement, std::move(graph), is_sequential);
             break;
           }
 
@@ -684,7 +785,7 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
     auto graph = std::make_unique<DFG>();
-    graph = resolveStatement(statement, std::move(graph));
+    graph = resolveStatement(statement, std::move(graph), false);
     return graph;
 }
 
@@ -776,10 +877,12 @@ ResolvedTypes::ProceduralTiming resolveProceduralTiming(
             const auto& eventControl = timingControl->as<EventControlWithExpressionSyntax>();
             triggers = extractAsyncTriggers((eventControl.expr), triggers);
             std::cout << "Triggers:\n";
+            /*
             for (const auto& t : triggers) {
                 std::cout << "  { edge: " << edgeToStr(t.edge)
                           << ", name: " << t.name << " }\n";
             }
+            */
             is_sequential = true;
             break;
         }
@@ -789,7 +892,7 @@ ResolvedTypes::ProceduralTiming resolveProceduralTiming(
 
     }
     auto graph = std::make_unique<DFG>();
-    graph = resolveStatement(statement, std::move(graph));
+    graph = resolveStatement(statement, std::move(graph), is_sequential);
     return graph;
 }
 

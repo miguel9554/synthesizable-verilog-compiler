@@ -39,24 +39,57 @@ struct ResolvedSignal;
         }
     };
 
-    enum class UnaryOp { NEGATE, PLUS };
+    enum class UnaryOp {
+        PLUS,
+        NEGATE,
+        BITWISE_AND,      // reduction &
+        BITWISE_NAND,     // reduction ~&
+        BITWISE_OR,       // reduction |
+        BITWISE_NOR,      // reduction ~|
+        BITWISE_XOR,      // reduction ^
+        BITWISE_XNOR,     // reduction ~^ or ^~
+        LOGICAL_NOT,      // !x
+        BITWISE_NOT       // ~x
+    };
 
     class UnaryNode : public ExprNode {
+    public:
         std::unique_ptr<ExprNode> operand;
         UnaryOp op;
-    public:
         UnaryNode(std::unique_ptr<ExprNode> operand, UnaryOp op)
             : operand(std::move(operand)), op(op) {}
         double evaluate() const override {
             double val = operand->evaluate();
+            int64_t ival = static_cast<int64_t>(val);
             switch (op) {
-                case UnaryOp::NEGATE: return -val;
                 case UnaryOp::PLUS: return val;
+                case UnaryOp::NEGATE: return -val;
+                case UnaryOp::BITWISE_NOT: return static_cast<double>(~ival);
+                case UnaryOp::LOGICAL_NOT: return (ival == 0) ? 1.0 : 0.0;
+                // Reduction ops - simplified evaluation (not bit-accurate)
+                case UnaryOp::BITWISE_AND: return (ival != 0) ? 1.0 : 0.0;
+                case UnaryOp::BITWISE_NAND: return (ival != 0) ? 0.0 : 1.0;
+                case UnaryOp::BITWISE_OR: return (ival != 0) ? 1.0 : 0.0;
+                case UnaryOp::BITWISE_NOR: return (ival != 0) ? 0.0 : 1.0;
+                case UnaryOp::BITWISE_XOR: return static_cast<double>(__builtin_parityll(ival));
+                case UnaryOp::BITWISE_XNOR: return static_cast<double>(!__builtin_parityll(ival));
             }
             return val;
         }
         std::string toJson(int indent = 0) const override {
-            std::string opStr = (op == UnaryOp::NEGATE) ? "negate" : "plus";
+            const char* opStr;
+            switch (op) {
+                case UnaryOp::PLUS: opStr = "plus"; break;
+                case UnaryOp::NEGATE: opStr = "negate"; break;
+                case UnaryOp::BITWISE_AND: opStr = "reduction_and"; break;
+                case UnaryOp::BITWISE_NAND: opStr = "reduction_nand"; break;
+                case UnaryOp::BITWISE_OR: opStr = "reduction_or"; break;
+                case UnaryOp::BITWISE_NOR: opStr = "reduction_nor"; break;
+                case UnaryOp::BITWISE_XOR: opStr = "reduction_xor"; break;
+                case UnaryOp::BITWISE_XNOR: opStr = "reduction_xnor"; break;
+                case UnaryOp::LOGICAL_NOT: opStr = "logical_not"; break;
+                case UnaryOp::BITWISE_NOT: opStr = "bitwise_not"; break;
+            }
             return indentStr(indent) + "{\n" +
                    indentStr(indent + 1) + R"("type": "Unary",)" + "\n" +
                    indentStr(indent + 1) + R"("op": ")" + opStr + "\",\n" +
