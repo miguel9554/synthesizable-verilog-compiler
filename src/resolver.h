@@ -81,7 +81,7 @@ struct ResolvedTypes {
     using Param = ResolvedParam;
     using Assign = std::unique_ptr<ExprNode>;
     // Same as in unresolved IR
-    using ProceduralTiming = UnresolvedTypes::ProceduralTiming;
+    using ProceduralTiming = std::unique_ptr<DFG>;
     using ProceduralCombo = std::unique_ptr<DFG>;
     using Hierarchy = UnresolvedTypes::Hierarchy;
 };

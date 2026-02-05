@@ -6,10 +6,12 @@
 #include "slang/syntax/SyntaxNode.h"
 #include "types.h"
 
+#include <atomic>
 #include <iostream>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
+#include <vector>
 
 using namespace slang::syntax;
 
@@ -686,6 +688,111 @@ ResolvedTypes::ProceduralCombo resolveProceduralCombo(
     return graph;
 }
 
+std::string make_id() {
+    static std::atomic<uint64_t> counter{0};
+    return "id_" + std::to_string(++counter);
+}
+
+typedef enum {
+    POSEDGE, NEGEDGE
+} edge_t;
+
+typedef struct {
+    edge_t edge;
+    std::string name;
+} asyncTrigger_t;
+
+const char* edgeToStr(edge_t e) {
+    switch (e) {
+        case POSEDGE: return "POSEDGE";
+        case NEGEDGE: return "NEGEDGE";
+    }
+}
+std::vector<asyncTrigger_t> extractSignalEventExpression(
+        const SignalEventExpressionSyntax& sigEventExpr,
+        std::vector<asyncTrigger_t> triggers
+){
+    if (sigEventExpr.expr->kind != SyntaxKind::IdentifierName) {
+        throw std::runtime_error(
+                "Expression not supported on sensitibility list");
+    }
+    const auto& idExpr = sigEventExpr.expr->as<IdentifierNameSyntax>();
+    const std::string name (idExpr.identifier.valueText());
+    edge_t edge;
+    if (sigEventExpr.edge.valueText() == "posedge"){
+        edge = edge_t::POSEDGE;
+    } else if (sigEventExpr.edge.valueText() == "negedge"){
+        edge = edge_t::NEGEDGE;
+    } else{
+        throw std::runtime_error(
+                "Edge must be posedge or negedge.");
+    }
+    triggers.push_back({edge, name});
+    return triggers;
+}
+
+std::vector<asyncTrigger_t> extractAsyncTriggers(
+        const EventExpressionSyntax* expr,
+        std::vector<asyncTrigger_t> triggers){
+    switch (expr->kind){
+        case SyntaxKind::SignalEventExpression:
+            return extractSignalEventExpression(expr->as<SignalEventExpressionSyntax>(), triggers);
+        case SyntaxKind::ParenthesizedEventExpression:{
+            const auto& eventExpr = expr->as<ParenthesizedEventExpressionSyntax>().expr;
+            return extractAsyncTriggers(eventExpr, triggers);
+         }
+        case SyntaxKind::BinaryEventExpression:{
+            const auto& binaryEventExpr = expr->as<BinaryEventExpressionSyntax>();
+            const auto& leftExpr = binaryEventExpr.left;
+            const auto& rightExpr = binaryEventExpr.right;
+            const auto& token = binaryEventExpr.operatorToken;
+            if (token.valueText() != "or"){
+                throw std::runtime_error("Only OR supported in event list.");
+            }
+            triggers = extractAsyncTriggers(leftExpr, triggers);
+            triggers = extractAsyncTriggers(rightExpr, triggers);
+            return triggers;
+        }
+        default:
+            throw std::runtime_error("Reached invalid code region.");
+    }
+}
+ResolvedTypes::ProceduralTiming resolveProceduralTiming(
+        const UnresolvedTypes::ProceduralTiming& timingStatement,
+        const ParameterContext& /*ctx*/
+){
+    const auto& timingControl = timingStatement->timingControl;
+    const auto& statement = timingStatement->statement;
+    bool is_sequential;
+    std::vector<asyncTrigger_t> triggers;
+
+    switch (timingControl->kind){
+        case SyntaxKind::ImplicitEventControl:
+            std::cout << "We are on combo procedural" << std::endl;
+            is_sequential = false;
+            break;
+        case SyntaxKind::EventControlWithExpression:{
+            std::cout << "We are on flop procedural" << std::endl;
+            const auto& eventControl = timingControl->as<EventControlWithExpressionSyntax>();
+            triggers = extractAsyncTriggers((eventControl.expr), triggers);
+            std::cout << "Triggers:\n";
+            for (const auto& t : triggers) {
+                std::cout << "  { edge: " << edgeToStr(t.edge)
+                          << ", name: " << t.name << " }\n";
+            }
+            is_sequential = true;
+            break;
+        }
+        default:
+            throw std::runtime_error(
+                "Not supported timing control: " + std::string(toString(timingControl->kind)));
+
+    }
+    auto graph = std::make_unique<DFG>();
+    graph = resolveStatement(statement, std::move(graph));
+    return graph;
+}
+
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
     ResolvedSignal resolved;
     resolved.name = signal.name;
@@ -740,6 +847,11 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     // Resolve procedural combo
     for (const auto& block : unresolved.proceduralComboBlocks) {
         resolved.proceduralComboBlocks.push_back(resolveProceduralCombo(block, *mergedCtx));
+    }
+
+    // Resolve procedural timing
+    for (const auto& block : unresolved.proceduralTimingBlocks) {
+        resolved.proceduralTimingBlocks.push_back(resolveProceduralTiming(block, *mergedCtx));
     }
 
     for (const auto& assign : unresolved.assignStatements) {
