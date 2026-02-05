@@ -545,30 +545,91 @@ std::unique_ptr<DFG> resolveConditionalStatement(
     auto predicateExprTree = buildExprTree(predicateExpr);
     auto conditionNode = exprTreeToDFGNode(*graph, predicateExprTree.get());
 
-    // Save the actual driver nodes, not the output node pointers
-    // (output nodes get modified in place when replaced)
-    std::unordered_map<std::string, DFGNode*> oldDrivers;
-    for (const auto& [outName, outNode] : graph->outputs) {
-        if (!outNode->in.empty()) {
-            oldDrivers[outName] = outNode->in[0];
+    // Extract driver nodes from graph outputs
+    // (output nodes get modified in place when replaced, so we save the actual drivers)
+    auto getDrivers = [](const DFG& g) {
+        std::unordered_map<std::string, DFGNode*> drivers;
+        for (const auto& [outName, outNode] : g.outputs) {
+            if (!outNode->in.empty()) {
+                drivers[outName] = outNode->in[0];
+            }
         }
+        return drivers;
+    };
+
+    const auto oldDrivers = getDrivers(*graph);
+
+    if (conditionalStatement->elseClause) {
+        // TODO should check if this is a statement.
+        const auto& elseClause = conditionalStatement->elseClause->clause;
+        const auto& elseStatement = elseClause->as<StatementSyntax>();
+        graph = resolveStatement(&elseStatement, std::move(graph));
     }
+
+    const auto elseDrivers = getDrivers(*graph);
 
     graph = resolveStatement(conditionalStatement->statement, std::move(graph));
 
+    // Assign MUXes for signals that ARE assigned on IF branch
     for (const auto& [outName, outNode] : graph->outputs) {
-        auto it = oldDrivers.find(outName);
-        if (it != oldDrivers.end() && !outNode->in.empty()) {
-            DFGNode* oldDriver = it->second;
-            DFGNode* newDriver = outNode->in[0];
-            if (oldDriver != newDriver) {
-                // Add the mux!
-                const auto& muxOut = graph->mux(conditionNode, newDriver, oldDriver);
-                graph->output(muxOut, outName, true);
+        DFGNode* oldDriver;
+        DFGNode* newDriver = outNode->in[0];
+
+        // First, check if signal is asisgned in ELSE clause
+        auto it = elseDrivers.find(outName);
+        if (it != elseDrivers.end() && !outNode->in.empty()) {
+            oldDriver = it->second;
+        } else {
+            auto it = oldDrivers.find(outName);
+            if (it != oldDrivers.end() && !outNode->in.empty()) {
+                oldDriver = it->second;
+            } else {
+            throw std::runtime_error(
+                "Signal is not assigned in IF branch but not other: " + outName);
             }
+        }
+
+        if (oldDriver != newDriver) {
+            // Add the mux!
+            const auto& muxOut = graph->mux(conditionNode, newDriver, oldDriver);
+            graph->output(muxOut, outName, true);
         }
     }
 
+    // Handle signals that are assigned in ELSE branch but NOT in IF branch
+    for (const auto& [elseName, elseDriver] : elseDrivers) {
+        auto oldIt = oldDrivers.find(elseName);
+        DFGNode* oldDriver = (oldIt != oldDrivers.end()) ? oldIt->second : nullptr;
+
+        // Skip if ELSE didn't actually modify this signal
+        if (elseDriver == oldDriver) {
+            continue;
+        }
+
+        // Check if IF modified this signal
+        auto ifIt = graph->outputs.find(elseName);
+        bool if_modified = (ifIt != graph->outputs.end() && !ifIt->second->in.empty()
+                            && ifIt->second->in[0] != elseDriver);
+
+        // IF already handled this signal in the loop above
+        if (if_modified) {
+            continue;
+        }
+
+        // Signal is only in ELSE, not in OLD and not in IF → error
+        if (!oldDriver) {
+            throw std::runtime_error(
+                "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
+        }
+
+        // Signal is in ELSE and OLD but not IF → add MUX
+        // TRUE (condition true, IF branch): use oldDriver (IF didn't change it)
+        // FALSE (condition false, ELSE branch): use elseDriver
+        auto muxOut = graph->mux(conditionNode, oldDriver, elseDriver);
+        graph->output(muxOut, elseName, true);
+    }
+
+    // TODO this graph MAY contain dangling/orphan nodes.
     return graph;
 }
 
