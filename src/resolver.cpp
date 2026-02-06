@@ -688,7 +688,16 @@ std::unique_ptr<DFG> resolveConditionalStatement(
                 if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
                     qName.replace(dPos, 2, ".q");
                 }
-                oldDriver = graph->input(qName);
+                // Look up the .q signal node
+                if (graph->inputs.contains(qName)) {
+                    oldDriver = graph->inputs[qName];
+                } else if (graph->outputs.contains(qName)) {
+                    oldDriver = graph->outputs[qName]->in[0];
+                } else if (graph->signals.contains(qName)) {
+                    oldDriver = graph->signals[qName];
+                } else {
+                    throw std::runtime_error("Could not find .q signal: " + qName);
+                }
             } else {
                 throw std::runtime_error(
                     "Signal is not assigned in IF branch but not other: " + outName);
@@ -731,7 +740,16 @@ std::unique_ptr<DFG> resolveConditionalStatement(
                 if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
                     qName.replace(dPos, 2, ".q");
                 }
-                oldDriver = graph->input(qName);
+                // Look up the .q signal node
+                if (graph->inputs.contains(qName)) {
+                    oldDriver = graph->inputs[qName];
+                } else if (graph->outputs.contains(qName)) {
+                    oldDriver = graph->outputs[qName]->in[0];
+                } else if (graph->signals.contains(qName)) {
+                    oldDriver = graph->signals[qName];
+                } else {
+                    throw std::runtime_error("Could not find .q signal: " + qName);
+                }
             } else {
                 throw std::runtime_error(
                     "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
@@ -879,7 +897,16 @@ std::unique_ptr<DFG> resolveCaseStatement(
                 if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
                     qName.replace(dPos, 2, ".q");
                 }
-                caseValue = graph->input(qName);
+                // Look up the .q signal node
+                if (graph->inputs.contains(qName)) {
+                    caseValue = graph->inputs[qName];
+                } else if (graph->outputs.contains(qName)) {
+                    caseValue = graph->outputs[qName]->in[0];
+                } else if (graph->signals.contains(qName)) {
+                    caseValue = graph->signals[qName];
+                } else {
+                    throw std::runtime_error("Could not find .q signal: " + qName);
+                }
                 // Also set defaultValue so subsequent branches use the same node
                 defaultValue = caseValue;
             } else {
