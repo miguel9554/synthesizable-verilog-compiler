@@ -16,6 +16,7 @@ enum class DFGOp {
     OUTPUT,     // Primary output (module port)
     SIGNAL,     // Internal signal (named placeholder)
     CONST,      // Constant value (data: int64_t)
+    INDEX,      // Array indexing: in[0]=array, in[1]=index
     // Binary ops
     ADD,
     SUB,
@@ -97,9 +98,24 @@ struct DFG {
         return nodes.back().get();
     }
 
+    // Create an INDEX node: array[index]
+    DFGNode* index(DFGNode* array, DFGNode* idx, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::INDEX)
+            : std::make_unique<DFGNode>(DFGOp::INDEX, name);
+        n->in = {array, idx};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
     // Lookup signal for READING in expressions
     // Returns the node representing the signal's value
-    DFGNode* lookupSignal(const std::string& name) const {
+    // Handles array indexing like my_array[0][1] by creating INDEX nodes
+    DFGNode* lookupSignal(const std::string& name) {
+        // First try exact match
         if (auto it = inputs.find(name); it != inputs.end()) return it->second;
         if (auto it = signals.find(name); it != signals.end()) return it->second;
         if (auto it = outputs.find(name); it != outputs.end()) {
@@ -107,7 +123,43 @@ struct DFG {
             auto* outNode = it->second;
             return outNode->in.empty() ? outNode : outNode->in[0];
         }
-        return nullptr;
+
+        // Not found - check if this is an array index pattern like name[N] or name[N][M]...
+        // Find the last '[' that has a matching ']' at the end
+        if (name.empty() || name.back() != ']') {
+            return nullptr;
+        }
+
+        // Find the matching '[' for the last ']'
+        size_t bracketEnd = name.size() - 1;
+        size_t bracketStart = name.rfind('[');
+        if (bracketStart == std::string::npos) {
+            return nullptr;
+        }
+
+        // Extract the base name (everything before the last [N])
+        std::string baseName = name.substr(0, bracketStart);
+
+        // Extract the index value between [ and ]
+        std::string indexStr = name.substr(bracketStart + 1, bracketEnd - bracketStart - 1);
+
+        // Parse the index as an integer
+        int64_t indexVal;
+        try {
+            indexVal = std::stoll(indexStr);
+        } catch (...) {
+            return nullptr;  // Not a valid integer index
+        }
+
+        // Recursively look up the base signal
+        DFGNode* baseNode = lookupSignal(baseName);
+        if (!baseNode) {
+            return nullptr;
+        }
+
+        // Create an INDEX node: base[indexVal]
+        DFGNode* indexNode = constant(indexVal);
+        return index(baseNode, indexNode, name);
     }
 
     // Connect a driver to an existing output node
@@ -403,6 +455,7 @@ struct DFG {
                 case DFGOp::ASR: ss << ">>>"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
+                case DFGOp::INDEX: ss << "INDEX"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
                 case DFGOp::UNARY_NEGATE: ss << "-"; break;
                 case DFGOp::BITWISE_NOT: ss << "~"; break;
@@ -463,6 +516,7 @@ struct DFG {
                 case DFGOp::ASR: ss << "ASR"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
+                case DFGOp::INDEX: ss << "INDEX"; break;
                 case DFGOp::UNARY_PLUS: ss << "UNARY_PLUS"; break;
                 case DFGOp::UNARY_NEGATE: ss << "UNARY_NEGATE"; break;
                 case DFGOp::BITWISE_NOT: ss << "BITWISE_NOT"; break;
