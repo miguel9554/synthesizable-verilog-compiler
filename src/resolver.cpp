@@ -369,6 +369,18 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr) {
             return graph.input(signalName);
         }
 
+        case SyntaxKind::IdentifierSelectName: {
+            auto& idSelect = expr->as<IdentifierSelectNameSyntax>();
+            std::string signalName = std::string(idSelect.identifier.valueText()) +
+                                     std::string(idSelect.selectors.toString());
+            // Check if signal already exists in graph
+            if (graph.inputs.contains(signalName)) return graph.inputs[signalName];
+            if (graph.outputs.contains(signalName)) return graph.outputs[signalName]->in[0];
+            if (graph.signals.contains(signalName)) return graph.signals[signalName];
+            // Create new input
+            return graph.input(signalName);
+        }
+
         case SyntaxKind::ParenthesizedExpression: {
             auto& paren = expr->as<ParenthesizedExpressionSyntax>();
             return buildExprDFG(graph, paren.expression);
