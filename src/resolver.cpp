@@ -505,6 +505,18 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
                           buildExprDFG(graph, binary.right, is_sequential, flopNames));
         }
 
+        case SyntaxKind::ArithmeticShiftLeftExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return graph.shl(buildExprDFG(graph, binary.left, is_sequential, flopNames),
+                           buildExprDFG(graph, binary.right, is_sequential, flopNames));
+        }
+
+        case SyntaxKind::ArithmeticShiftRightExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return graph.asr(buildExprDFG(graph, binary.left, is_sequential, flopNames),
+                           buildExprDFG(graph, binary.right, is_sequential, flopNames));
+        }
+
         case SyntaxKind::ConditionalExpression: {
             auto& cond = expr->as<ConditionalExpressionSyntax>();
             if (cond.predicate->conditions.size() != 1) {

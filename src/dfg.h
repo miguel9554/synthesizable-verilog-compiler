@@ -25,6 +25,8 @@ enum class DFGOp {
     LE,         // Less or equal (<=)
     GT,         // Greater than (>)
     GE,         // Greater or equal (>=)
+    SHL,        // Arithmetic shift left (<<<)
+    ASR,        // Arithmetic shift right (>>>)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
     MUX_N,      // N:1 mux: in[0..N-1]=selectors, in[N..2N-1]=data values (one-hot select)
     // Unary ops (single input)
@@ -202,6 +204,30 @@ struct DFG {
         return nodes.back().get();
     }
 
+    DFGNode* shl(DFGNode* a, DFGNode* b, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::SHL)
+            : std::make_unique<DFGNode>(DFGOp::SHL, name);
+        n->in = {a, b};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
+    DFGNode* asr(DFGNode* a, DFGNode* b, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::ASR)
+            : std::make_unique<DFGNode>(DFGOp::ASR, name);
+        n->in = {a, b};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
     DFGNode* mux(DFGNode* sel, DFGNode* t, DFGNode* f, const std::string& name = "") {
         auto n = name.empty()
             ? std::make_unique<DFGNode>(DFGOp::MUX)
@@ -328,6 +354,8 @@ struct DFG {
                 case DFGOp::LE:  ss << "<="; break;
                 case DFGOp::GT:  ss << ">"; break;
                 case DFGOp::GE:  ss << ">="; break;
+                case DFGOp::SHL: ss << "<<<"; break;
+                case DFGOp::ASR: ss << ">>>"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
@@ -385,6 +413,8 @@ struct DFG {
                 case DFGOp::LE: ss << "LE"; break;
                 case DFGOp::GT: ss << "GT"; break;
                 case DFGOp::GE: ss << "GE"; break;
+                case DFGOp::SHL: ss << "SHL"; break;
+                case DFGOp::ASR: ss << "ASR"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
                 case DFGOp::UNARY_PLUS: ss << "UNARY_PLUS"; break;
