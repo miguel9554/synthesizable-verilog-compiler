@@ -1,9 +1,11 @@
 #include "syntax_extract.h"
 
 #include <stdexcept>
+#include <vector>
 
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
+#include "types.h"
 
 using namespace slang::syntax;
 using namespace slang::parsing;
@@ -13,6 +15,29 @@ namespace custom_hdl {
 UnresolvedType extractDataType(const DataTypeSyntax& syntax) {
     // Simply capture the syntax pointer - resolution happens in pass 2
     return UnresolvedType{&syntax};
+}
+
+std::vector<UnresolvedParam> extractParameter(const ParameterDeclarationBaseSyntax* declaration, std::vector<UnresolvedParam> params) {
+    if (declaration->kind == SyntaxKind::TypeParameterDeclaration) {
+        throw std::runtime_error("Can't parse Type parameters");
+    }
+    auto& paramDeclaration = declaration->as<ParameterDeclarationSyntax>();
+    UnresolvedType typeInfo = extractDataType(*paramDeclaration.type);
+
+    for (auto* declarator : paramDeclaration.declarators) {
+        std::string paramName = std::string(declarator->name.valueText());
+        const ExpressionSyntax* defaultValue = nullptr;
+        if (declarator->initializer) {
+            defaultValue = declarator->initializer->expr;
+        }
+        params.push_back(UnresolvedParam{
+            .name = paramName,
+            .type = typeInfo,
+            .dimensions = {},
+            .defaultValue = defaultValue
+        });
+    }
+    return params;
 }
 
 UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
@@ -25,25 +50,7 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
     // Extract parameters
     if (header.parameters) {
         for (auto* declaration : header.parameters->declarations) {
-            if (declaration->kind == SyntaxKind::TypeParameterDeclaration) {
-                throw std::runtime_error("Can't parse Type parameters");
-            }
-            auto& paramDeclaration = declaration->as<ParameterDeclarationSyntax>();
-            UnresolvedType typeInfo = extractDataType(*paramDeclaration.type);
-
-            for (auto* declarator : paramDeclaration.declarators) {
-                std::string paramName = std::string(declarator->name.valueText());
-                const ExpressionSyntax* defaultValue = nullptr;
-                if (declarator->initializer) {
-                    defaultValue = declarator->initializer->expr;
-                }
-                info.parameters.push_back(UnresolvedParam{
-                    .name = paramName,
-                    .type = typeInfo,
-                    .dimensions = {},
-                    .defaultValue = defaultValue
-                });
-            }
+            info.parameters = extractParameter(declaration, info.parameters);
         }
     }
 

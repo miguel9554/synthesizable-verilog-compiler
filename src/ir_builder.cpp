@@ -198,6 +198,11 @@ public:
                   std::back_inserter(currentModule->signals));
     }
 
+    // TODO we should store localparams in a different array...
+    void handle(const ParameterDeclarationStatementSyntax& node) {
+        currentModule->parameters = extractParameter(node.parameter, currentModule->parameters);
+    }
+
     void handle(const DataDeclarationSyntax& node) {
         if (!currentModule) throw std::runtime_error(
                 "Variable declaration block must be inside module.");

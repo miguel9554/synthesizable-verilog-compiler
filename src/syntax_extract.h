@@ -16,4 +16,6 @@ UnresolvedType extractDataType(const slang::syntax::DataTypeSyntax& syntax);
 // Extract module header information (name, ports, parameters) - all unresolved
 UnresolvedModule extractModuleHeader(const slang::syntax::ModuleHeaderSyntax& header);
 
+std::vector<UnresolvedParam> extractParameter(const ParameterDeclarationBaseSyntax* declaration, std::vector<UnresolvedParam> params);
+
 } // namespace custom_hdl

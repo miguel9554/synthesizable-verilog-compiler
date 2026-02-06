@@ -55,6 +55,7 @@ void ResolvedSignal::print(std::ostream& os) const {
     }
 }
 
+/*
 void ResolvedParam::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
@@ -63,6 +64,7 @@ void ResolvedParam::print(std::ostream& os) const {
     }
     os << " = " << value;
 }
+*/
 
 void ResolvedModule::print(int indent) const {
     auto indent_str = [](int n) { return std::string(n * 2, ' '); };
@@ -1320,6 +1322,11 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     // === Create single DFG and pre-populate ===
     resolved.dfg = std::make_unique<DFG>();
     DFG& graph = *resolved.dfg;
+
+    // Pre-populate module PARAMETERS (ports only)
+    for (const auto& parameter : resolved.parameters) {
+        prePopulateInput(graph, parameter);
+    }
 
     // Pre-populate module INPUTS (ports only)
     for (const auto& input : resolved.inputs) {
