@@ -1,6 +1,5 @@
 #include "resolver.h"
 #include "dfg.h"
-#include "expression_tree.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxNode.h"
@@ -319,25 +318,22 @@ ResolvedType resolveType(
     return ResolvedType::makeInteger(width, is_signed);
 }
 
-std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
+// Build DFG node directly from slang expression syntax
+DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr) {
     if (!expr) {
-        throw std::runtime_error("Cannot build expression tree from null expression");
+        throw std::runtime_error("Cannot build DFG from null expression");
     }
 
     switch (expr->kind) {
         case SyntaxKind::IntegerLiteralExpression: {
             auto& literal = expr->as<LiteralExpressionSyntax>();
             auto text = literal.literal.rawText();
-            double value = std::stod(std::string(text));
-            return std::make_unique<LiteralNode>(value);
+            int64_t value = std::stoll(std::string(text));
+            return graph.constant(value);
         }
 
         case SyntaxKind::IntegerVectorExpression: {
             auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
-            // size is optional (e.g., 'hFF vs 8'hFF)
-            // base is required (e.g., 'h, 'b, 'd, 'o)
-            // value is the actual digits
-
             std::string sizeText(vecExpr.size.rawText());
             std::string baseText(vecExpr.base.rawText());
             std::string valueText(vecExpr.value.rawText());
@@ -359,140 +355,119 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
 
             int64_t value = std::stoll(valueText, nullptr, base);
             std::cout << "IntegerVectorExpression: " << literal << " -> " << value << std::endl;
-            return std::make_unique<LiteralNode>(static_cast<double>(value));
+            return graph.constant(value);
         }
 
         case SyntaxKind::IdentifierName: {
             auto& name = expr->as<IdentifierNameSyntax>();
             std::string signalName(name.identifier.valueText());
-            return std::make_unique<NamedReferenceNode>(signalName);
+            // Check if signal already exists in graph
+            if (graph.inputs.contains(signalName)) return graph.inputs[signalName];
+            if (graph.outputs.contains(signalName)) return graph.outputs[signalName]->in[0];
+            if (graph.signals.contains(signalName)) return graph.signals[signalName];
+            // Create new input
+            return graph.input(signalName);
         }
 
         case SyntaxKind::ParenthesizedExpression: {
             auto& paren = expr->as<ParenthesizedExpressionSyntax>();
-            return buildExprTree(paren.expression);
+            return buildExprDFG(graph, paren.expression);
         }
 
+        // Unary operations
         case SyntaxKind::UnaryPlusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::PLUS);
+            return graph.unaryPlus(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryMinusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::NEGATE);
+            return graph.unaryNegate(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseAndExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_AND);
+            return graph.reductionAnd(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseNandExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NAND);
+            return graph.reductionNand(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseOrExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_OR);
+            return graph.reductionOr(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseNorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NOR);
+            return graph.reductionNor(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseXorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_XOR);
+            return graph.reductionXor(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseXnorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_XNOR);
+            return graph.reductionXnor(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryLogicalNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::LOGICAL_NOT);
+            return graph.logicalNot(buildExprDFG(graph, unary.operand));
         }
 
         case SyntaxKind::UnaryBitwiseNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return std::make_unique<UnaryNode>(buildExprTree(unary.operand), UnaryOp::BITWISE_NOT);
+            return graph.bitwiseNot(buildExprDFG(graph, unary.operand));
         }
 
+        // Binary operations
         case SyntaxKind::AddExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::SUM);
+            return graph.add(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::SubtractExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::MINUS);
+            return graph.sub(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::MultiplyExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::MULTIPLY);
+            return graph.mul(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::DivideExpression: {
-            auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::DIVIDE);
+            throw std::runtime_error("DIV operation not yet supported in DFG");
         }
 
         case SyntaxKind::EqualityExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::EQ);
+            return graph.eq(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::LessThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::LT);
+            return graph.lt(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::LessThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::LE);
+            return graph.le(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::GreaterThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::GT);
+            return graph.gt(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::GreaterThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return std::make_unique<BinaryNode>(
-                buildExprTree(binary.left),
-                buildExprTree(binary.right),
-                BinaryOp::GE);
+            return graph.ge(buildExprDFG(graph, binary.left), buildExprDFG(graph, binary.right));
         }
 
         case SyntaxKind::ConditionalExpression: {
@@ -503,15 +478,15 @@ std::unique_ptr<ExprNode> buildExprTree(const ExpressionSyntax* expr) {
             if (cond.predicate->conditions[0]->matchesClause) {
                 throw std::runtime_error("matches clause not supported in ternary expression");
             }
-            return std::make_unique<TernaryNode>(
-                buildExprTree(cond.predicate->conditions[0]->expr),
-                buildExprTree(cond.left),
-                buildExprTree(cond.right));
+            auto* condNode = buildExprDFG(graph, cond.predicate->conditions[0]->expr);
+            auto* trueNode = buildExprDFG(graph, cond.left);
+            auto* falseNode = buildExprDFG(graph, cond.right);
+            return graph.mux(condNode, trueNode, falseNode);
         }
 
         default:
             throw std::runtime_error(
-                "Unsupported expression kind in expression tree: " +
+                "Unsupported expression kind in DFG building: " +
                 std::string(toString(expr->kind)));
     }
 }
@@ -534,99 +509,29 @@ std::vector<ResolvedTypes::Assign> resolveAssign(
         }
 
         auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
-        result.push_back(buildExprTree(binaryAssign.right));
+
+        // Get output name from left side
+        std::string outputName;
+        if (binaryAssign.left->kind == SyntaxKind::IdentifierName) {
+            const auto& identifier = binaryAssign.left->as<IdentifierNameSyntax>();
+            outputName = identifier.identifier.valueText();
+        } else if (binaryAssign.left->kind == SyntaxKind::IdentifierSelectName) {
+            const auto& identifier = binaryAssign.left->as<IdentifierSelectNameSyntax>();
+            outputName = std::string(identifier.identifier.valueText()) + std::string(identifier.selectors.toString());
+        } else {
+            throw std::runtime_error(
+                "Left side must be identifier: " + std::string(toString(binaryAssign.left->kind)));
+        }
+
+        // Build DFG directly from expression
+        auto graph = std::make_unique<DFG>();
+        auto* exprNode = buildExprDFG(*graph, binaryAssign.right);
+        graph->output(exprNode, outputName, true);
+        result.push_back(std::move(graph));
     }
 
     return result;
 }
-
-DFGNode* exprTreeToDFGNode(DFG& graph, const ExprNode* node){
-    if (auto* lit = dynamic_cast<const LiteralNode*>(node)){
-        return graph.constant(static_cast<int64_t>(lit->evaluate()));
-    }
-    else if (auto* namedRef = dynamic_cast<const NamedReferenceNode*>(node)){
-        // If it's an input, return the node
-        // If it's an output, also?
-        // "internal" nodes to the DFG are not allowed *yet*.
-        // They would require parsing an internal signal declaration.
-        const auto name = namedRef->getName();
-        if (graph.inputs.contains(name)) return graph.inputs[name];
-        if (graph.outputs.contains(name)) return graph.outputs[name]->in[0];
-        // TODO should we always create the input?
-        return graph.input(name);
-    }
-    else if (auto* binary = dynamic_cast<const BinaryNode*>(node)){
-        auto* left = exprTreeToDFGNode(graph, binary->left.get());
-        auto* right = exprTreeToDFGNode(graph, binary->right.get());
-        switch(binary->op) {
-            case BinaryOp::SUM:
-                return graph.add(left, right);
-            case BinaryOp::MINUS:
-                return graph.sub(left, right);
-            case BinaryOp::MULTIPLY:
-                return graph.mul(left, right);
-            case BinaryOp::DIVIDE:
-                throw std::runtime_error("DIV operation not yet supported in DFG");
-            case BinaryOp::EQ:
-                return graph.eq(left, right);
-            case BinaryOp::LT:
-                return graph.lt(left, right);
-            case BinaryOp::LE:
-                return graph.le(left, right);
-            case BinaryOp::GT:
-                return graph.gt(left, right);
-            case BinaryOp::GE:
-                return graph.ge(left, right);
-        }
-        throw std::runtime_error("Unknown BinaryOp");
-    }
-    else if (auto* unary = dynamic_cast<const UnaryNode*>(node)){
-        auto* operand = exprTreeToDFGNode(graph, unary->operand.get());
-        switch(unary->op) {
-            case UnaryOp::PLUS:
-                return graph.unaryPlus(operand);
-            case UnaryOp::NEGATE:
-                return graph.unaryNegate(operand);
-            case UnaryOp::BITWISE_NOT:
-                return graph.bitwiseNot(operand);
-            case UnaryOp::LOGICAL_NOT:
-                return graph.logicalNot(operand);
-            case UnaryOp::BITWISE_AND:
-                return graph.reductionAnd(operand);
-            case UnaryOp::BITWISE_NAND:
-                return graph.reductionNand(operand);
-            case UnaryOp::BITWISE_OR:
-                return graph.reductionOr(operand);
-            case UnaryOp::BITWISE_NOR:
-                return graph.reductionNor(operand);
-            case UnaryOp::BITWISE_XOR:
-                return graph.reductionXor(operand);
-            case UnaryOp::BITWISE_XNOR:
-                return graph.reductionXnor(operand);
-        }
-        throw std::runtime_error("Unknown UnaryOp");
-    }
-    else if (auto* ternary = dynamic_cast<const TernaryNode*>(node)){
-        auto* cond = exprTreeToDFGNode(graph, ternary->condition.get());
-        auto* trueVal = exprTreeToDFGNode(graph, ternary->trueExpr.get());
-        auto* falseVal = exprTreeToDFGNode(graph, ternary->falseExpr.get());
-        return graph.mux(cond, trueVal, falseVal);
-    }
-    else {
-        // Catches ReferenceNode and any other unsupported types
-        throw std::runtime_error("Unsupported ExprNode type in DFG conversion");
-    }
-}
-
-std::unique_ptr<DFG> exprTreeToDFG(const ExprNode* node, const std::string name, std::unique_ptr<DFG> graph){
-    if (!graph){
-        graph = std::make_unique<DFG>();
-    }
-    auto outputNode = exprTreeToDFGNode(*graph, node);
-    graph->output(outputNode, name, true);
-    return graph;
-}
-
 
 std::unique_ptr<DFG> resolveExpressionStatement(
         const ExpressionStatementSyntax* exprStatement,
@@ -653,8 +558,9 @@ std::unique_ptr<DFG> resolveExpressionStatement(
         throw std::runtime_error(
         "Left can only be variable name: " + std::string(toString(left->kind)));
     }
-    const auto exprTree = buildExprTree(right);
-    return exprTreeToDFG(exprTree.get(), name, std::move(graph));
+    auto* exprNode = buildExprDFG(*graph, right);
+    graph->output(exprNode, name, true);
+    return graph;
 }
 
 std::unique_ptr<DFG> resolveConditionalStatement(
@@ -671,8 +577,7 @@ std::unique_ptr<DFG> resolveConditionalStatement(
     const auto& predicateExpr = predicate->conditions[0]->expr;
 
     // construct the signal node for the predicate expression
-    auto predicateExprTree = buildExprTree(predicateExpr);
-    auto conditionNode = exprTreeToDFGNode(*graph, predicateExprTree.get());
+    auto conditionNode = buildExprDFG(*graph, predicateExpr);
 
     // Extract driver nodes from graph outputs
     // (output nodes get modified in place when replaced, so we save the actual drivers)
@@ -781,8 +686,7 @@ std::unique_ptr<DFG> resolveCaseStatement(
     }
 
     // Build the selector expression node
-    auto selectorExprTree = buildExprTree(caseStatement->expr);
-    auto selectorNode = exprTreeToDFGNode(*graph, selectorExprTree.get());
+    auto selectorNode = buildExprDFG(*graph, caseStatement->expr);
 
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
@@ -821,8 +725,7 @@ std::unique_ptr<DFG> resolveCaseStatement(
             }
 
             // Build condition: selector == case_value
-            auto caseValueTree = buildExprTree(caseItem.expressions[0]);
-            auto caseValueNode = exprTreeToDFGNode(*graph, caseValueTree.get());
+            auto caseValueNode = buildExprDFG(*graph, caseItem.expressions[0]);
             auto conditionNode = graph->eq(selectorNode, caseValueNode);
 
             // Reset to fallback state before processing

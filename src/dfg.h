@@ -8,7 +8,6 @@
 #include <string>
 #include <sstream>
 #include <variant>
-#include "expression_tree.h"
 
 namespace custom_hdl {
 
@@ -28,7 +27,6 @@ enum class DFGOp {
     GE,         // Greater or equal (>=)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
     MUX_N,      // N:1 mux: in[0..N-1]=selectors, in[N..2N-1]=data values (one-hot select)
-    ASSIGN,     // Assignment with expression tree (data: unique_ptr<ExprNode>)
     // Unary ops (single input)
     UNARY_PLUS,
     UNARY_NEGATE,
@@ -50,18 +48,15 @@ struct DFGNode {
     // - monostate: no extra data (ADD, SUB, MUL, DIV, MUX)
     // - int64_t: constant value (CONST)
     // - string: signal name (INPUT, OUTPUT)
-    // - unique_ptr<ExprNode>: expression tree (ASSIGN)
     std::variant<
         std::monostate,
         int64_t,
-        std::string,
-        std::unique_ptr<ExprNode>
+        std::string
     > data;
 
     DFGNode(DFGOp o) : op(o) {}
     DFGNode(DFGOp o, std::string name) : op(o), data(std::move(name)) {}
     DFGNode(DFGOp o, int64_t val) : op(o), data(val) {}
-    DFGNode(DFGOp o, std::unique_ptr<ExprNode> expr) : op(o), data(std::move(expr)) {}
 };
 
 struct DFG {
@@ -335,7 +330,6 @@ struct DFG {
                 case DFGOp::GE:  ss << ">="; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
-                case DFGOp::ASSIGN: ss << "ASSIGN"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
                 case DFGOp::UNARY_NEGATE: ss << "-"; break;
                 case DFGOp::BITWISE_NOT: ss << "~"; break;
@@ -362,6 +356,78 @@ struct DFG {
         }
 
         ss << "}\n";
+        return ss.str();
+    }
+
+    std::string toJson(int indent = 0) const {
+        auto indentStr = [](int n) { return std::string(n * 2, ' '); };
+
+        std::ostringstream ss;
+        ss << indentStr(indent) << "{\n";
+        ss << indentStr(indent + 1) << "\"nodes\": [\n";
+
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& node = nodes[i];
+            ss << indentStr(indent + 2) << "{\n";
+            ss << indentStr(indent + 3) << "\"id\": " << i << ",\n";
+            ss << indentStr(indent + 3) << "\"op\": \"";
+
+            switch (node->op) {
+                case DFGOp::INPUT: ss << "INPUT"; break;
+                case DFGOp::OUTPUT: ss << "OUTPUT"; break;
+                case DFGOp::CONST: ss << "CONST"; break;
+                case DFGOp::ADD: ss << "ADD"; break;
+                case DFGOp::SUB: ss << "SUB"; break;
+                case DFGOp::MUL: ss << "MUL"; break;
+                case DFGOp::DIV: ss << "DIV"; break;
+                case DFGOp::EQ: ss << "EQ"; break;
+                case DFGOp::LT: ss << "LT"; break;
+                case DFGOp::LE: ss << "LE"; break;
+                case DFGOp::GT: ss << "GT"; break;
+                case DFGOp::GE: ss << "GE"; break;
+                case DFGOp::MUX: ss << "MUX"; break;
+                case DFGOp::MUX_N: ss << "MUX_N"; break;
+                case DFGOp::UNARY_PLUS: ss << "UNARY_PLUS"; break;
+                case DFGOp::UNARY_NEGATE: ss << "UNARY_NEGATE"; break;
+                case DFGOp::BITWISE_NOT: ss << "BITWISE_NOT"; break;
+                case DFGOp::LOGICAL_NOT: ss << "LOGICAL_NOT"; break;
+                case DFGOp::REDUCTION_AND: ss << "REDUCTION_AND"; break;
+                case DFGOp::REDUCTION_NAND: ss << "REDUCTION_NAND"; break;
+                case DFGOp::REDUCTION_OR: ss << "REDUCTION_OR"; break;
+                case DFGOp::REDUCTION_NOR: ss << "REDUCTION_NOR"; break;
+                case DFGOp::REDUCTION_XOR: ss << "REDUCTION_XOR"; break;
+                case DFGOp::REDUCTION_XNOR: ss << "REDUCTION_XNOR"; break;
+            }
+            ss << "\",\n";
+
+            // Add data field based on variant type
+            if (std::holds_alternative<int64_t>(node->data)) {
+                ss << indentStr(indent + 3) << "\"value\": " << std::get<int64_t>(node->data) << ",\n";
+            } else if (std::holds_alternative<std::string>(node->data)) {
+                ss << indentStr(indent + 3) << "\"name\": \"" << std::get<std::string>(node->data) << "\",\n";
+            }
+
+            // Add inputs
+            ss << indentStr(indent + 3) << "\"inputs\": [";
+            for (size_t j = 0; j < node->in.size(); ++j) {
+                // Find the index of the input node
+                for (size_t k = 0; k < nodes.size(); ++k) {
+                    if (nodes[k].get() == node->in[j]) {
+                        ss << k;
+                        break;
+                    }
+                }
+                if (j < node->in.size() - 1) ss << ", ";
+            }
+            ss << "]\n";
+
+            ss << indentStr(indent + 2) << "}";
+            if (i < nodes.size() - 1) ss << ",";
+            ss << "\n";
+        }
+
+        ss << indentStr(indent + 1) << "]\n";
+        ss << indentStr(indent) << "}";
         return ss.str();
     }
 };

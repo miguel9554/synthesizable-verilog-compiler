@@ -181,7 +181,7 @@ struct ModuleBase {
                 // Unresolved: use slang CSTSerializer
                 dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
             } else {
-                // Resolved: use ExprNode::toJson()
+                // Resolved: use DFG::toJson()
                 if (this->assignStatements[i]) {
                     std::ofstream out(filename);
                     if (!out) {

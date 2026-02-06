@@ -11,9 +11,6 @@
 
 namespace custom_hdl {
 
-// Forward declaration to break circular dependency
-class ExprNode;
-
 // ============================================================================
 // Resolved types (output of pass 2)
 // ============================================================================
@@ -79,7 +76,7 @@ struct ResolvedTypes {
     using Dimension = ResolvedDimension;
     using Signal = ResolvedSignal;
     using Param = ResolvedParam;
-    using Assign = std::unique_ptr<ExprNode>;
+    using Assign = std::unique_ptr<DFG>;
     // Same as in unresolved IR
     using ProceduralTiming = std::unique_ptr<DFG>;
     using ProceduralCombo = std::unique_ptr<DFG>;
