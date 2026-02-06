@@ -445,7 +445,7 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
             std::string baseName(name.identifier.valueText());
             std::string signalName = baseName;
             // In sequential blocks, flops on RHS use .q suffix
-            if (is_sequential && flopNames.contains(baseName)) {
+            if (flopNames.contains(baseName)) {
                 signalName = baseName + ".q";
             }
             // Use lookupSignal helper - DO NOT CREATE
