@@ -1271,21 +1271,6 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 }
 
-// Pre-populate flop .q and .d as signals (both are internal signals)
-void prePopulateFlopSignals(DFG& graph, const ResolvedSignal& flop) {
-    // .q (current flop state - read in sequential blocks)
-    graph.createSignal(flop.name + ".q");
-    // .d (next flop state - written in sequential blocks)
-    graph.createSignal(flop.name + ".d");
-
-    if (flop.type.width > 1) {
-        for (int i = 0; i < flop.type.width; ++i) {
-            graph.createSignal(flop.name + ".q[" + std::to_string(i) + "]");
-            graph.createSignal(flop.name + ".d[" + std::to_string(i) + "]");
-        }
-    }
-}
-
 } // anonymous namespace
 
 ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx) {
@@ -1342,11 +1327,6 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     // Pre-populate internal SIGNALS (not ports)
     for (const auto& signal : resolved.signals) {
         prePopulateSignal(graph, signal);
-    }
-
-    // Pre-populate flops as SIGNALS (.q and .d are both signals)
-    for (const auto& flop : resolved.flops) {
-        prePopulateFlopSignals(graph, flop);
     }
 
     // === Resolve all blocks into the shared graph ===
