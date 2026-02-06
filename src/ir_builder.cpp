@@ -176,9 +176,31 @@ public:
         signal->name = std::string(node.name.valueText());
     }
 
+    void handle(const NetDeclarationSyntax& node) {
+        if (!currentModule) throw std::runtime_error(
+                "Net declaration block must be inside module.");
+        if (node.strength) throw std::runtime_error(
+                "Strength not allowed.");
+        if (node.delay) throw std::runtime_error(
+                "Delay not allowed.");
+        // TODO we shold handle the expansionHint
+        const auto type = extractDataType(*node.type);
+        std::vector<UnresolvedSignal> signals;
+        for (auto declarator : node.declarators){
+                signals.push_back(
+                    UnresolvedSignal{
+                    .name = std::string(declarator->name.valueText()),
+                    .type = type,
+                    .dimensions = {&(declarator->dimensions)},
+                });
+        }
+        std::move(signals.begin(), signals.end(),
+                  std::back_inserter(currentModule->signals));
+    }
+
     void handle(const DataDeclarationSyntax& node) {
         if (!currentModule) throw std::runtime_error(
-                "Procedural block must be inside module.");
+                "Variable declaration block must be inside module.");
         const auto type = extractDataType(*node.type);
         std::vector<UnresolvedSignal> signals;
         for (auto declarator : node.declarators){
