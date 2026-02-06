@@ -137,6 +137,32 @@ void ResolvedModule::print(int indent) const {
 
 namespace {
 
+// TODO should be double? or parametrized by type.
+int64_t parseIntegerVectorExpression(const IntegerVectorExpressionSyntax& vecExpr){
+    std::string sizeText(vecExpr.size.rawText());
+    std::string baseText(vecExpr.base.rawText());
+    std::string valueText(vecExpr.value.rawText());
+    std::string literal = sizeText + baseText + valueText;
+
+    // Remove underscores from value (Verilog allows 8'hFF_FF)
+    valueText.erase(std::remove(valueText.begin(), valueText.end(), '_'), valueText.end());
+
+    int base = 10;
+    if (baseText.find('h') != std::string::npos || baseText.find('H') != std::string::npos) {
+        base = 16;
+    } else if (baseText.find('b') != std::string::npos || baseText.find('B') != std::string::npos) {
+        base = 2;
+    } else if (baseText.find('o') != std::string::npos || baseText.find('O') != std::string::npos) {
+        base = 8;
+    } else if (baseText.find('d') != std::string::npos || baseText.find('D') != std::string::npos) {
+        base = 10;
+    }
+
+    int64_t value = std::stoll(valueText, nullptr, base);
+    std::cout << "IntegerVectorExpression: " << literal << " -> " << value << std::endl;
+    return value;
+}
+
 // Forward declaration - in-place statement resolver
 void resolveStatementInPlace(
         const slang::syntax::StatementSyntax* statement,
@@ -214,6 +240,11 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
                 throw std::runtime_error("Division by zero in constant expression");
             }
             return evaluateConstantExpr(binary.left, ctx) / divisor;
+        }
+
+        case SyntaxKind::IntegerVectorExpression: {
+            auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
+            return parseIntegerVectorExpression(vecExpr);
         }
 
         default:
@@ -405,27 +436,7 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
 
         case SyntaxKind::IntegerVectorExpression: {
             auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
-            std::string sizeText(vecExpr.size.rawText());
-            std::string baseText(vecExpr.base.rawText());
-            std::string valueText(vecExpr.value.rawText());
-            std::string literal = sizeText + baseText + valueText;
-
-            // Remove underscores from value (Verilog allows 8'hFF_FF)
-            valueText.erase(std::remove(valueText.begin(), valueText.end(), '_'), valueText.end());
-
-            int base = 10;
-            if (baseText.find('h') != std::string::npos || baseText.find('H') != std::string::npos) {
-                base = 16;
-            } else if (baseText.find('b') != std::string::npos || baseText.find('B') != std::string::npos) {
-                base = 2;
-            } else if (baseText.find('o') != std::string::npos || baseText.find('O') != std::string::npos) {
-                base = 8;
-            } else if (baseText.find('d') != std::string::npos || baseText.find('D') != std::string::npos) {
-                base = 10;
-            }
-
-            int64_t value = std::stoll(valueText, nullptr, base);
-            std::cout << "IntegerVectorExpression: " << literal << " -> " << value << std::endl;
+            const auto value = parseIntegerVectorExpression(vecExpr);
             return graph.constant(value);
         }
 
