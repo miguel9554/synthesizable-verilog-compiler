@@ -88,7 +88,7 @@ struct DFG {
     }
 
     // Create a named signal placeholder (for internal signals, not ports)
-    DFGNode* createSignal(const std::string& name) {
+    DFGNode* signal(const std::string& name) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::SIGNAL, name));
         auto result = signals.insert({name, nodes.back().get()});
         if (!result.second) {

@@ -1115,11 +1115,6 @@ void resolveProceduralComboInPlace(
     resolveStatementInPlace(statement, graph, false, flopNames);
 }
 
-std::string make_id() {
-    static std::atomic<uint64_t> counter{0};
-    return "id_" + std::to_string(++counter);
-}
-
 typedef enum {
     POSEDGE, NEGEDGE
 } edge_t;
@@ -1129,12 +1124,6 @@ typedef struct {
     std::string name;
 } asyncTrigger_t;
 
-const char* edgeToStr(edge_t e) {
-    switch (e) {
-        case POSEDGE: return "POSEDGE";
-        case NEGEDGE: return "NEGEDGE";
-    }
-}
 std::vector<asyncTrigger_t> extractSignalEventExpression(
         const SignalEventExpressionSyntax& sigEventExpr,
         std::vector<asyncTrigger_t> triggers
@@ -1227,6 +1216,11 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 
     if (signal.dimensions.syntax) resolved.dimensions = ResolveDimensions(*signal.dimensions.syntax, ctx);
 
+    // For some reason getting 1 dimension of [0:0]
+    if(resolved.dimensions.size() == 1 && resolved.dimensions[0].left == 0 && resolved.dimensions[0].right == 0){
+        resolved.dimensions = {};
+    }
+
     return resolved;
 }
 
@@ -1234,40 +1228,53 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 // Pre-population helpers for DFG
 // ============================================================================
 
+std::vector<std::string>
+generateVectorNames(const ResolvedSignal& sig)
+{
+    std::vector<std::string> names = { sig.name };
+
+    for (const auto& dim : sig.dimensions) {
+        std::vector<std::string> next;
+
+        for (int i = dim.left; i <= dim.right; ++i) {
+            for (const auto& base : names) {
+                next.push_back(
+                    base + "[" + std::to_string(i) + "]"
+                );
+            }
+        }
+
+        names = std::move(next);
+    }
+
+    for (const auto& name : names) {
+        std::cout << name << std::endl;
+    }
+
+    return names;
+}
+
 // Pre-populate module input (port) with all bit indices
 void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
-    graph.input(sig.name);
-    if (sig.type.width > 1) {
-        for (int i = 0; i < sig.type.width; ++i) {
-            graph.input(sig.name + "[" + std::to_string(i) + "]");
-        }
+    for (const auto& name : generateVectorNames(sig)) {
+        graph.input(name);
     }
 }
 
 // Pre-populate module output (port) with all bit indices
 // Creates OUTPUT nodes with no driver (->in empty)
 void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
-    auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
-    graph.nodes.push_back(std::move(n));
-    graph.outputs[sig.name] = graph.nodes.back().get();
-
-    if (sig.type.width > 1) {
-        for (int i = 0; i < sig.type.width; ++i) {
-            std::string indexedName = sig.name + "[" + std::to_string(i) + "]";
-            auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, indexedName);
-            graph.nodes.push_back(std::move(n));
-            graph.outputs[indexedName] = graph.nodes.back().get();
-        }
+    for (const auto& name : generateVectorNames(sig)) {
+        auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, name);
+        graph.nodes.push_back(std::move(n));
+        graph.outputs[name] = graph.nodes.back().get();
     }
 }
 
 // Pre-populate internal signal with all bit indices
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
-    graph.createSignal(sig.name);
-    if (sig.type.width > 1) {
-        for (int i = 0; i < sig.type.width; ++i) {
-            graph.createSignal(sig.name + "[" + std::to_string(i) + "]");
-        }
+    for (const auto& name : generateVectorNames(sig)) {
+        graph.signal(name);
     }
 }
 
