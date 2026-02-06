@@ -76,10 +76,6 @@ struct ResolvedTypes {
     using Dimension = ResolvedDimension;
     using Signal = ResolvedSignal;
     using Param = ResolvedParam;
-    using Assign = std::unique_ptr<DFG>;
-    // Same as in unresolved IR
-    using ProceduralTiming = std::unique_ptr<DFG>;
-    using ProceduralCombo = std::unique_ptr<DFG>;
     using Hierarchy = UnresolvedTypes::Hierarchy;
 };
 
@@ -87,7 +83,22 @@ struct ResolvedTypes {
 // Resolved IR module (output of pass 2)
 // ============================================================================
 
-using ResolvedModule = ModuleBase<ResolvedTypes>;
+struct ResolvedModule {
+    std::string name;
+    std::vector<ResolvedTypes::Param> parameters;
+    std::vector<ResolvedTypes::Signal> inputs;
+    std::vector<ResolvedTypes::Signal> outputs;
+    std::vector<ResolvedTypes::Signal> signals;
+    std::vector<ResolvedTypes::Signal> flops;
+
+    // TODO a list of instantiated modules.
+    std::vector<ResolvedTypes::Hierarchy> hierarchyInstantiation;
+
+    // Single DFG containing all resolved logic
+    std::unique_ptr<DFG> dfg;
+
+    void print(int indent = 0) const;
+};
 
 // ============================================================================
 // Parameter context for resolution

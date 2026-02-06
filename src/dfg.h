@@ -12,8 +12,9 @@
 namespace custom_hdl {
 
 enum class DFGOp {
-    INPUT,      // Primary input signal
-    OUTPUT,     // Primary output signal
+    INPUT,      // Primary input (module port)
+    OUTPUT,     // Primary output (module port)
+    SIGNAL,     // Internal signal (named placeholder)
     CONST,      // Constant value (data: int64_t)
     // Binary ops
     ADD,
@@ -84,6 +85,47 @@ struct DFG {
     DFGNode* constant(int64_t v) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::CONST, v));
         return nodes.back().get();
+    }
+
+    // Create a named signal placeholder (for internal signals, not ports)
+    DFGNode* createSignal(const std::string& name) {
+        nodes.push_back(std::make_unique<DFGNode>(DFGOp::SIGNAL, name));
+        auto result = signals.insert({name, nodes.back().get()});
+        if (!result.second) {
+            throw std::runtime_error(std::format("Signal {} already exists", name));
+        }
+        return nodes.back().get();
+    }
+
+    // Lookup signal for READING in expressions
+    // Returns the node representing the signal's value
+    DFGNode* lookupSignal(const std::string& name) const {
+        if (auto it = inputs.find(name); it != inputs.end()) return it->second;
+        if (auto it = signals.find(name); it != signals.end()) return it->second;
+        if (auto it = outputs.find(name); it != outputs.end()) {
+            // For outputs, return the driver if connected (reading output value)
+            auto* outNode = it->second;
+            return outNode->in.empty() ? outNode : outNode->in[0];
+        }
+        return nullptr;
+    }
+
+    // Connect a driver to an existing output node
+    void connectOutput(const std::string& name, DFGNode* driver) {
+        auto it = outputs.find(name);
+        if (it == outputs.end()) {
+            throw std::runtime_error(std::format("Output {} not found", name));
+        }
+        it->second->in = {driver};
+    }
+
+    // Connect a driver to an existing signal node
+    void connectSignal(const std::string& name, DFGNode* driver) {
+        auto it = signals.find(name);
+        if (it == signals.end()) {
+            throw std::runtime_error(std::format("Signal {} not found", name));
+        }
+        it->second->in = {driver};
     }
 
     // An output can be recreated, if it's assigned again.
@@ -342,6 +384,9 @@ struct DFG {
                 case DFGOp::OUTPUT:
                     ss << "OUTPUT\\n" << std::get<std::string>(node->data);
                     break;
+                case DFGOp::SIGNAL:
+                    ss << "SIGNAL\\n" << std::get<std::string>(node->data);
+                    break;
                 case DFGOp::CONST:
                     ss << "CONST\\n" << std::get<int64_t>(node->data);
                     break;
@@ -403,6 +448,7 @@ struct DFG {
             switch (node->op) {
                 case DFGOp::INPUT: ss << "INPUT"; break;
                 case DFGOp::OUTPUT: ss << "OUTPUT"; break;
+                case DFGOp::SIGNAL: ss << "SIGNAL"; break;
                 case DFGOp::CONST: ss << "CONST"; break;
                 case DFGOp::ADD: ss << "ADD"; break;
                 case DFGOp::SUB: ss << "SUB"; break;

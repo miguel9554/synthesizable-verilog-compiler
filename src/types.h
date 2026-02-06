@@ -93,35 +93,34 @@ struct UnresolvedTypes {
 };
 
 // ============================================================================
-// Template module structure - parameterized by type traits
+// Unresolved Module structure
 // ============================================================================
 
-template<typename Types>
-struct ModuleBase {
+struct UnresolvedModule {
     std::string name;
-    std::vector<typename Types::Param> parameters;
-    std::vector<typename Types::Signal> inputs;
-    std::vector<typename Types::Signal> outputs;
-    std::vector<typename Types::Signal> signals;
-    std::vector<typename Types::Signal> flops;
+    std::vector<UnresolvedTypes::Param> parameters;
+    std::vector<UnresolvedTypes::Signal> inputs;
+    std::vector<UnresolvedTypes::Signal> outputs;
+    std::vector<UnresolvedTypes::Signal> signals;
+    std::vector<UnresolvedTypes::Signal> flops;
 
     // Procedural timing blocks
     // Can be combo @(*)
     // or seq @(posedge/negedge c)
     // Functions from (inputs, flops outputs) -> outputs
     // Functions from (inputs, flops) -> flops inputs
-    std::vector<typename Types::ProceduralTiming> proceduralTimingBlocks;
+    std::vector<UnresolvedTypes::ProceduralTiming> proceduralTimingBlocks;
 
     // Procedural combo blocks from always_comb
     // These have no timing.
-    std::vector<typename Types::ProceduralCombo> proceduralComboBlocks;
+    std::vector<UnresolvedTypes::ProceduralCombo> proceduralComboBlocks;
 
     // Assignments
-    std::vector<typename Types::Assign> assignStatements;
+    std::vector<UnresolvedTypes::Assign> assignStatements;
 
     // TODO a list of instantiated modules.
     // TODO prob. should be a list of pairs of params and modules
-    std::vector<typename Types::Hierarchy> hierarchyInstantiation;
+    std::vector<UnresolvedTypes::Hierarchy> hierarchyInstantiation;
 
     void print(int indent = 0) const {
         auto indent_str = [](int n) { return std::string(n * 2, ' '); };
@@ -173,49 +172,12 @@ struct ModuleBase {
 
         // Serialize assign statements to files
         for (size_t i = 0; i < this->assignStatements.size(); ++i) {
-            const char* typePrefix = std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>
-                ? "unresolved" : "resolved";
-            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_" + typePrefix + "_assign_" + std::to_string(i) + ".json";
-
-            if constexpr (std::is_same_v<typename Types::Assign, const slang::syntax::ContinuousAssignSyntax*>) {
-                // Unresolved: use slang CSTSerializer
-                dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
-            } else {
-                // Resolved: use DFG::toJson()
-                if (this->assignStatements[i]) {
-                    std::ofstream out(filename);
-                    if (!out) {
-                        std::cerr << "Failed to open output file: " << filename << std::endl;
-                        continue;
-                    }
-                    out << this->assignStatements[i]->toJson();
-                }
-            }
-
+            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_assign_" + std::to_string(i) + ".json";
+            dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
             std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
-        }
-
-        // Serialize procedural combo DFGs to dot files (resolved only)
-        for (size_t i = 0; i < this->proceduralComboBlocks.size(); ++i) {
-            if constexpr (std::is_same_v<typename Types::ProceduralCombo, std::unique_ptr<custom_hdl::DFG>>) {
-                if (this->proceduralComboBlocks[i]) {
-                    std::string graphName = this->name + "_combo_" + std::to_string(i);
-                    std::string filename = DEBUG_OUTPUT_DIR + "/" + graphName + ".dot";
-                    std::ofstream out(filename);
-                    if (!out) {
-                        std::cerr << "Failed to open output file: " << filename << std::endl;
-                        continue;
-                    }
-                    out << this->proceduralComboBlocks[i]->toDot(graphName);
-                    std::cout << indent_str(indent + 1) << "Wrote combo DFG " << i << " to: " << filename << std::endl;
-                }
-            }
         }
     }
 };
-
-// Convenience alias for unresolved module
-using UnresolvedModule = ModuleBase<UnresolvedTypes>;
 
     // Synthesizable statements
     static constexpr SyntaxKind synthesizableStatements[] = {

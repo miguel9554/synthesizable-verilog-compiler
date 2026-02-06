@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -62,6 +64,70 @@ void ResolvedParam::print(std::ostream& os) const {
     os << " = " << value;
 }
 
+void ResolvedModule::print(int indent) const {
+    auto indent_str = [](int n) { return std::string(n * 2, ' '); };
+
+    std::cout << indent_str(indent) << "Module: " << this->name << std::endl;
+
+    std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
+    for (const auto& param : this->parameters) {
+        std::cout << indent_str(indent + 2);
+        param.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Inputs:" << std::endl;
+    for (const auto& in : this->inputs) {
+        std::cout << indent_str(indent + 2);
+        in.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Outputs:" << std::endl;
+    for (const auto& out : this->outputs) {
+        std::cout << indent_str(indent + 2);
+        out.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Signals:" << std::endl;
+    for (const auto& signal : this->signals) {
+        std::cout << indent_str(indent + 2);
+        signal.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "Flops:" << std::endl;
+    for (const auto& flop : this->flops) {
+        std::cout << indent_str(indent + 2);
+        flop.print(std::cout);
+        std::cout << std::endl;
+    }
+
+    std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
+
+    // Write DFG to files
+    if (this->dfg) {
+        ensureDebugOutputDir();
+        std::string graphName = this->name + "_dfg";
+
+        // Write DOT file
+        std::string dotFilename = DEBUG_OUTPUT_DIR + "/" + graphName + ".dot";
+        std::ofstream dotOut(dotFilename);
+        if (dotOut) {
+            dotOut << this->dfg->toDot(graphName);
+            std::cout << indent_str(indent + 1) << "Wrote DFG to: " << dotFilename << std::endl;
+        }
+
+        // Write JSON file
+        std::string jsonFilename = DEBUG_OUTPUT_DIR + "/" + graphName + ".json";
+        std::ofstream jsonOut(jsonFilename);
+        if (jsonOut) {
+            jsonOut << this->dfg->toJson();
+            std::cout << indent_str(indent + 1) << "Wrote DFG JSON to: " << jsonFilename << std::endl;
+        }
+    }
+}
 
 // ============================================================================
 // Resolution functions (STUB implementations)
@@ -69,10 +135,10 @@ void ResolvedParam::print(std::ostream& os) const {
 
 namespace {
 
-// Forward declaration
-ResolvedTypes::ProceduralCombo resolveStatement(
+// Forward declaration - in-place statement resolver
+void resolveStatementInPlace(
         const slang::syntax::StatementSyntax* statement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames
 );
@@ -369,12 +435,12 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
             if (is_sequential && flopNames.contains(baseName)) {
                 signalName = baseName + ".q";
             }
-            // Check if signal already exists in graph
-            if (graph.inputs.contains(signalName)) return graph.inputs[signalName];
-            if (graph.outputs.contains(signalName)) return graph.outputs[signalName]->in[0];
-            if (graph.signals.contains(signalName)) return graph.signals[signalName];
-            // Create new input
-            return graph.input(signalName);
+            // Use lookupSignal helper - DO NOT CREATE
+            DFGNode* node = graph.lookupSignal(signalName);
+            if (node == nullptr) {
+                throw std::runtime_error("Undeclared signal: '" + signalName + "'");
+            }
+            return node;
         }
 
         case SyntaxKind::IdentifierSelectName: {
@@ -388,12 +454,12 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
             } else {
                 signalName = baseName + selectors;
             }
-            // Check if signal already exists in graph
-            if (graph.inputs.contains(signalName)) return graph.inputs[signalName];
-            if (graph.outputs.contains(signalName)) return graph.outputs[signalName]->in[0];
-            if (graph.signals.contains(signalName)) return graph.signals[signalName];
-            // Create new input
-            return graph.input(signalName);
+            // Use lookupSignal helper - DO NOT CREATE
+            DFGNode* node = graph.lookupSignal(signalName);
+            if (node == nullptr) {
+                throw std::runtime_error("Undeclared signal: '" + signalName + "'");
+            }
+            return node;
         }
 
         case SyntaxKind::ParenthesizedExpression: {
@@ -538,16 +604,15 @@ DFGNode* buildExprDFG(DFG& graph, const ExpressionSyntax* expr,
     }
 }
 
-std::vector<ResolvedTypes::Assign> resolveAssign(
+// Resolve a continuous assignment in-place on the shared DFG
+void resolveAssignInPlace(
         const ContinuousAssignSyntax* syntax,
-        const ParameterContext& /*ctx*/,
+        DFG& graph,
         const std::set<std::string>& flopNames
     ){
     if (!syntax) throw std::runtime_error("Null pointer");
     if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
     if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
-
-    std::vector<ResolvedTypes::Assign> result;
 
     for (const auto* assignExpr : syntax->assignments) {
         if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
@@ -573,18 +638,22 @@ std::vector<ResolvedTypes::Assign> resolveAssign(
 
         // Build DFG directly from expression
         // is_sequential=false (no .d suffix on LHS), but flopNames needed for .q on RHS
-        auto graph = std::make_unique<DFG>();
-        auto* exprNode = buildExprDFG(*graph, binaryAssign.right, false, flopNames);
-        graph->output(exprNode, outputName, true);
-        result.push_back(std::move(graph));
-    }
+        auto* exprNode = buildExprDFG(graph, binaryAssign.right, false, flopNames);
 
-    return result;
+        // Connect driver to existing output or signal node
+        if (graph.outputs.contains(outputName)) {
+            graph.connectOutput(outputName, exprNode);
+        } else if (graph.signals.contains(outputName)) {
+            graph.connectSignal(outputName, exprNode);
+        } else {
+            throw std::runtime_error("Cannot assign to undeclared: " + outputName);
+        }
+    }
 }
 
-std::unique_ptr<DFG> resolveExpressionStatement(
+void resolveExpressionStatementInPlace(
         const ExpressionStatementSyntax* exprStatement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames){
     auto& expr = exprStatement->expr;
@@ -621,14 +690,21 @@ std::unique_ptr<DFG> resolveExpressionStatement(
         outputName = baseName + selectors;
     }
 
-    auto* exprNode = buildExprDFG(*graph, right, is_sequential, flopNames);
-    graph->output(exprNode, outputName, true);
-    return graph;
+    auto* exprNode = buildExprDFG(graph, right, is_sequential, flopNames);
+
+    // Connect driver to existing output or signal node
+    if (graph.outputs.contains(outputName)) {
+        graph.connectOutput(outputName, exprNode);
+    } else if (graph.signals.contains(outputName)) {
+        graph.connectSignal(outputName, exprNode);
+    } else {
+        throw std::runtime_error("Cannot assign to undeclared: " + outputName);
+    }
 }
 
-std::unique_ptr<DFG> resolveConditionalStatement(
+void resolveConditionalStatementInPlace(
         const ConditionalStatementSyntax* conditionalStatement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames){
     const auto& predicate = conditionalStatement->predicate;
@@ -641,10 +717,10 @@ std::unique_ptr<DFG> resolveConditionalStatement(
     const auto& predicateExpr = predicate->conditions[0]->expr;
 
     // construct the signal node for the predicate expression
-    auto conditionNode = buildExprDFG(*graph, predicateExpr, is_sequential, flopNames);
+    auto conditionNode = buildExprDFG(graph, predicateExpr, is_sequential, flopNames);
 
-    // Extract driver nodes from graph outputs
-    // (output nodes get modified in place when replaced, so we save the actual drivers)
+    // Extract driver nodes from outputs and signals
+    // (we need to track what's connected before modifications)
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
@@ -652,35 +728,73 @@ std::unique_ptr<DFG> resolveConditionalStatement(
                 drivers[outName] = outNode->in[0];
             }
         }
+        for (const auto& [sigName, sigNode] : g.signals) {
+            if (!sigNode->in.empty()) {
+                drivers[sigName] = sigNode->in[0];
+            }
+        }
         return drivers;
     };
 
-    const auto oldDrivers = getDrivers(*graph);
+    const auto oldDrivers = getDrivers(graph);
 
     if (conditionalStatement->elseClause) {
-        // TODO should check if this is a statement.
         const auto& elseClause = conditionalStatement->elseClause->clause;
         const auto& elseStatement = elseClause->as<StatementSyntax>();
-        graph = resolveStatement(&elseStatement, std::move(graph), is_sequential, flopNames);
+        resolveStatementInPlace(&elseStatement, graph, is_sequential, flopNames);
     }
 
-    const auto elseDrivers = getDrivers(*graph);
+    const auto elseDrivers = getDrivers(graph);
 
-    graph = resolveStatement(conditionalStatement->statement, std::move(graph), is_sequential, flopNames);
+    resolveStatementInPlace(conditionalStatement->statement, graph, is_sequential, flopNames);
+
+    // Helper to connect a signal (output or signal type)
+    auto connectSignalOrOutput = [&graph](const std::string& name, DFGNode* driver) {
+        if (graph.outputs.contains(name)) {
+            graph.connectOutput(name, driver);
+        } else if (graph.signals.contains(name)) {
+            graph.connectSignal(name, driver);
+        }
+    };
+
+    // Helper to get current driver for a signal
+    auto getCurrentDriver = [&graph](const std::string& name) -> DFGNode* {
+        if (auto it = graph.outputs.find(name); it != graph.outputs.end()) {
+            return it->second->in.empty() ? nullptr : it->second->in[0];
+        }
+        if (auto it = graph.signals.find(name); it != graph.signals.end()) {
+            return it->second->in.empty() ? nullptr : it->second->in[0];
+        }
+        return nullptr;
+    };
+
+    // Collect all signals that were assigned
+    std::set<std::string> assignedSignals;
+    for (const auto& [name, _] : graph.outputs) {
+        if (getCurrentDriver(name) != nullptr) {
+            assignedSignals.insert(name);
+        }
+    }
+    for (const auto& [name, _] : graph.signals) {
+        if (getCurrentDriver(name) != nullptr) {
+            assignedSignals.insert(name);
+        }
+    }
 
     // Assign MUXes for signals that ARE assigned on IF branch
-    for (const auto& [outName, outNode] : graph->outputs) {
+    for (const auto& outName : assignedSignals) {
         DFGNode* oldDriver;
-        DFGNode* newDriver = outNode->in[0];
+        DFGNode* newDriver = getCurrentDriver(outName);
+        if (!newDriver) continue;
 
-        // First, check if signal is asisgned in ELSE clause
+        // First, check if signal is assigned in ELSE clause
         auto it = elseDrivers.find(outName);
-        if (it != elseDrivers.end() && !outNode->in.empty()) {
+        if (it != elseDrivers.end()) {
             oldDriver = it->second;
         } else {
-            auto it = oldDrivers.find(outName);
-            if (it != oldDrivers.end() && !outNode->in.empty()) {
-                oldDriver = it->second;
+            auto it2 = oldDrivers.find(outName);
+            if (it2 != oldDrivers.end()) {
+                oldDriver = it2->second;
             } else if (is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = outName;
@@ -689,15 +803,11 @@ std::unique_ptr<DFG> resolveConditionalStatement(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                if (graph->inputs.contains(qName)) {
-                    oldDriver = graph->inputs[qName];
-                } else if (graph->outputs.contains(qName)) {
-                    oldDriver = graph->outputs[qName]->in[0];
-                } else if (graph->signals.contains(qName)) {
-                    oldDriver = graph->signals[qName];
-                } else {
+                DFGNode* qNode = graph.lookupSignal(qName);
+                if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
+                oldDriver = qNode;
             } else {
                 throw std::runtime_error(
                     "Signal is not assigned in IF branch but not other: " + outName);
@@ -706,8 +816,8 @@ std::unique_ptr<DFG> resolveConditionalStatement(
 
         if (oldDriver != newDriver) {
             // Add the mux!
-            const auto& muxOut = graph->mux(conditionNode, newDriver, oldDriver);
-            graph->output(muxOut, outName, true);
+            const auto& muxOut = graph.mux(conditionNode, newDriver, oldDriver);
+            connectSignalOrOutput(outName, muxOut);
         }
     }
 
@@ -722,9 +832,8 @@ std::unique_ptr<DFG> resolveConditionalStatement(
         }
 
         // Check if IF modified this signal
-        auto ifIt = graph->outputs.find(elseName);
-        bool if_modified = (ifIt != graph->outputs.end() && !ifIt->second->in.empty()
-                            && ifIt->second->in[0] != elseDriver);
+        DFGNode* currentDriver = getCurrentDriver(elseName);
+        bool if_modified = (currentDriver != nullptr && currentDriver != elseDriver);
 
         // IF already handled this signal in the loop above
         if (if_modified) {
@@ -741,15 +850,11 @@ std::unique_ptr<DFG> resolveConditionalStatement(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                if (graph->inputs.contains(qName)) {
-                    oldDriver = graph->inputs[qName];
-                } else if (graph->outputs.contains(qName)) {
-                    oldDriver = graph->outputs[qName]->in[0];
-                } else if (graph->signals.contains(qName)) {
-                    oldDriver = graph->signals[qName];
-                } else {
+                DFGNode* qNode = graph.lookupSignal(qName);
+                if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
+                oldDriver = qNode;
             } else {
                 throw std::runtime_error(
                     "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
@@ -759,17 +864,14 @@ std::unique_ptr<DFG> resolveConditionalStatement(
         // Signal is in ELSE and OLD but not IF → add MUX
         // TRUE (condition true, IF branch): use oldDriver (IF didn't change it)
         // FALSE (condition false, ELSE branch): use elseDriver
-        auto muxOut = graph->mux(conditionNode, oldDriver, elseDriver);
-        graph->output(muxOut, elseName, true);
+        auto muxOut = graph.mux(conditionNode, oldDriver, elseDriver);
+        connectSignalOrOutput(elseName, muxOut);
     }
-
-    // TODO this graph MAY contain dangling/orphan nodes.
-    return graph;
 }
 
-std::unique_ptr<DFG> resolveCaseStatement(
+void resolveCaseStatementInPlace(
         const CaseStatementSyntax* caseStatement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames) {
 
@@ -787,8 +889,9 @@ std::unique_ptr<DFG> resolveCaseStatement(
     }
 
     // Build the selector expression node
-    auto selectorNode = buildExprDFG(*graph, caseStatement->expr, is_sequential, flopNames);
+    auto selectorNode = buildExprDFG(graph, caseStatement->expr, is_sequential, flopNames);
 
+    // Extract driver nodes from outputs and signals
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
@@ -796,10 +899,31 @@ std::unique_ptr<DFG> resolveCaseStatement(
                 drivers[outName] = outNode->in[0];
             }
         }
+        for (const auto& [sigName, sigNode] : g.signals) {
+            if (!sigNode->in.empty()) {
+                drivers[sigName] = sigNode->in[0];
+            }
+        }
         return drivers;
     };
 
-    const auto fallbackDrivers = getDrivers(*graph);
+    // Helper to connect a signal (output or signal type)
+    auto connectSignalOrOutput = [&graph](const std::string& name, DFGNode* driver) {
+        if (graph.outputs.contains(name)) {
+            graph.connectOutput(name, driver);
+        } else if (graph.signals.contains(name)) {
+            graph.connectSignal(name, driver);
+        }
+    };
+
+    // Helper to restore drivers to fallback state
+    auto restoreDrivers = [&connectSignalOrOutput](const std::unordered_map<std::string, DFGNode*>& drivers) {
+        for (const auto& [name, driver] : drivers) {
+            connectSignalOrOutput(name, driver);
+        }
+    };
+
+    const auto fallbackDrivers = getDrivers(graph);
 
     // Collect info for each case
     struct CaseInfo {
@@ -813,11 +937,9 @@ std::unique_ptr<DFG> resolveCaseStatement(
         if (item->kind == SyntaxKind::DefaultCaseItem) {
             const auto& defaultItem = item->as<DefaultCaseItemSyntax>();
             // Reset to fallback state before processing
-            for (const auto& [name, driver] : fallbackDrivers) {
-                graph->output(driver, name, true);
-            }
-            graph = resolveStatement(&defaultItem.clause->as<StatementSyntax>(), std::move(graph), is_sequential, flopNames);
-            defaultDrivers = getDrivers(*graph);
+            restoreDrivers(fallbackDrivers);
+            resolveStatementInPlace(&defaultItem.clause->as<StatementSyntax>(), graph, is_sequential, flopNames);
+            defaultDrivers = getDrivers(graph);
         } else if (item->kind == SyntaxKind::StandardCaseItem) {
             const auto& caseItem = item->as<StandardCaseItemSyntax>();
 
@@ -826,17 +948,15 @@ std::unique_ptr<DFG> resolveCaseStatement(
             }
 
             // Build condition: selector == case_value
-            auto caseValueNode = buildExprDFG(*graph, caseItem.expressions[0], is_sequential, flopNames);
-            auto conditionNode = graph->eq(selectorNode, caseValueNode);
+            auto caseValueNode = buildExprDFG(graph, caseItem.expressions[0], is_sequential, flopNames);
+            auto conditionNode = graph.eq(selectorNode, caseValueNode);
 
             // Reset to fallback state before processing
-            for (const auto& [name, driver] : fallbackDrivers) {
-                graph->output(driver, name, true);
-            }
+            restoreDrivers(fallbackDrivers);
 
             // Process case body
-            graph = resolveStatement(&caseItem.clause->as<StatementSyntax>(), std::move(graph), is_sequential, flopNames);
-            normalCases.push_back({conditionNode, getDrivers(*graph)});
+            resolveStatementInPlace(&caseItem.clause->as<StatementSyntax>(), graph, is_sequential, flopNames);
+            normalCases.push_back({conditionNode, getDrivers(graph)});
         } else {
             throw std::runtime_error(
                 "Unsupported case item kind: " + std::string(toString(item->kind)));
@@ -898,15 +1018,11 @@ std::unique_ptr<DFG> resolveCaseStatement(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                if (graph->inputs.contains(qName)) {
-                    caseValue = graph->inputs[qName];
-                } else if (graph->outputs.contains(qName)) {
-                    caseValue = graph->outputs[qName]->in[0];
-                } else if (graph->signals.contains(qName)) {
-                    caseValue = graph->signals[qName];
-                } else {
+                DFGNode* qNode = graph.lookupSignal(qName);
+                if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
+                caseValue = qNode;
                 // Also set defaultValue so subsequent branches use the same node
                 defaultValue = caseValue;
             } else {
@@ -924,62 +1040,58 @@ std::unique_ptr<DFG> resolveCaseStatement(
             // Each MUX: if selector[i] matches, use dataValues[i], else use previous result
             result = defaultValue;
             for (size_t i = 0; i < selectors.size(); ++i) {
-                result = graph->mux(selectors[i], dataValues[i], result);
+                result = graph.mux(selectors[i], dataValues[i], result);
             }
         } else {
             // No default: use MUX_N directly (assumes cases are exhaustive/one-hot)
             if (selectors.size() == 1) {
                 result = dataValues[0];
             } else {
-                result = graph->muxN(selectors, dataValues);
+                result = graph.muxN(selectors, dataValues);
             }
         }
 
-        graph->output(result, signalName, true);
+        connectSignalOrOutput(signalName, result);
     }
-
-    return graph;
 }
 
-ResolvedTypes::ProceduralCombo resolveSequentialBlockStatement(
+void resolveSequentialBlockStatementInPlace(
         const slang::syntax::BlockStatementSyntax* seqStatement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames
 ){
     for (const auto* item: seqStatement->items){
-        // TODO should catch if this fails...
         const auto& statement = item->as<StatementSyntax>();
-        graph = resolveStatement(&statement, std::move(graph), is_sequential, flopNames);
+        resolveStatementInPlace(&statement, graph, is_sequential, flopNames);
     }
-    return graph;
 }
 
-ResolvedTypes::ProceduralCombo resolveStatement(
+void resolveStatementInPlace(
         const slang::syntax::StatementSyntax* statement,
-        std::unique_ptr<DFG> graph,
+        DFG& graph,
         bool is_sequential,
         const std::set<std::string>& flopNames
 ){
     switch (statement->kind){
         case SyntaxKind::SequentialBlockStatement:{
             const auto& seqStatement = statement->as<BlockStatementSyntax>();
-            graph = resolveSequentialBlockStatement(&seqStatement, std::move(graph), is_sequential, flopNames);
+            resolveSequentialBlockStatementInPlace(&seqStatement, graph, is_sequential, flopNames);
             break;
         }
         case SyntaxKind::ExpressionStatement:{
             const auto& exprStatement = statement->as<ExpressionStatementSyntax>();
-            graph = resolveExpressionStatement(&exprStatement, std::move(graph), is_sequential, flopNames);
+            resolveExpressionStatementInPlace(&exprStatement, graph, is_sequential, flopNames);
             break;
         }
         case SyntaxKind::ConditionalStatement:{
             const auto& conditionalStatement = statement->as<ConditionalStatementSyntax>();
-            graph = resolveConditionalStatement(&conditionalStatement, std::move(graph), is_sequential, flopNames);
+            resolveConditionalStatementInPlace(&conditionalStatement, graph, is_sequential, flopNames);
             break;
         }
         case SyntaxKind::CaseStatement:{
             const auto& caseStmt = statement->as<CaseStatementSyntax>();
-            graph = resolveCaseStatement(&caseStmt, std::move(graph), is_sequential, flopNames);
+            resolveCaseStatementInPlace(&caseStmt, graph, is_sequential, flopNames);
             break;
         }
 
@@ -987,22 +1099,20 @@ ResolvedTypes::ProceduralCombo resolveStatement(
             throw std::runtime_error(
                 "We expect all statements to be expressions. Current: " + std::string(toString(statement->kind)));
     }
-    return graph;
 }
 
-ResolvedTypes::ProceduralCombo resolveProceduralCombo(
+// Resolve procedural combo block in-place on shared DFG
+void resolveProceduralComboInPlace(
         const UnresolvedTypes::ProceduralCombo& statement,
-        const ParameterContext& /*ctx*/,
+        DFG& graph,
         const std::set<std::string>& flopNames
 ){
     if (statement->kind != SyntaxKind::SequentialBlockStatement){
         throw std::runtime_error(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
-    auto graph = std::make_unique<DFG>();
     // always_comb is not sequential, but we still pass flopNames for reference lookups
-    graph = resolveStatement(statement, std::move(graph), false, flopNames);
-    return graph;
+    resolveStatementInPlace(statement, graph, false, flopNames);
 }
 
 std::string make_id() {
@@ -1074,9 +1184,10 @@ std::vector<asyncTrigger_t> extractAsyncTriggers(
             throw std::runtime_error("Reached invalid code region.");
     }
 }
-ResolvedTypes::ProceduralTiming resolveProceduralTiming(
+// Resolve procedural timing block in-place on shared DFG
+void resolveProceduralTimingInPlace(
         const UnresolvedTypes::ProceduralTiming& timingStatement,
-        const ParameterContext& /*ctx*/,
+        DFG& graph,
         const std::set<std::string>& flopNames
 ){
     const auto& timingControl = timingStatement->timingControl;
@@ -1094,12 +1205,6 @@ ResolvedTypes::ProceduralTiming resolveProceduralTiming(
             const auto& eventControl = timingControl->as<EventControlWithExpressionSyntax>();
             triggers = extractAsyncTriggers((eventControl.expr), triggers);
             std::cout << "Triggers:\n";
-            /*
-            for (const auto& t : triggers) {
-                std::cout << "  { edge: " << edgeToStr(t.edge)
-                          << ", name: " << t.name << " }\n";
-            }
-            */
             is_sequential = true;
             break;
         }
@@ -1108,9 +1213,7 @@ ResolvedTypes::ProceduralTiming resolveProceduralTiming(
                 "Not supported timing control: " + std::string(toString(timingControl->kind)));
 
     }
-    auto graph = std::make_unique<DFG>();
-    graph = resolveStatement(statement, std::move(graph), is_sequential, flopNames);
-    return graph;
+    resolveStatementInPlace(statement, graph, is_sequential, flopNames);
 }
 
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
@@ -1125,6 +1228,62 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
     if (signal.dimensions.syntax) resolved.dimensions = ResolveDimensions(*signal.dimensions.syntax, ctx);
 
     return resolved;
+}
+
+// ============================================================================
+// Pre-population helpers for DFG
+// ============================================================================
+
+// Pre-populate module input (port) with all bit indices
+void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
+    graph.input(sig.name);
+    if (sig.type.width > 1) {
+        for (int i = 0; i < sig.type.width; ++i) {
+            graph.input(sig.name + "[" + std::to_string(i) + "]");
+        }
+    }
+}
+
+// Pre-populate module output (port) with all bit indices
+// Creates OUTPUT nodes with no driver (->in empty)
+void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
+    auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+    graph.nodes.push_back(std::move(n));
+    graph.outputs[sig.name] = graph.nodes.back().get();
+
+    if (sig.type.width > 1) {
+        for (int i = 0; i < sig.type.width; ++i) {
+            std::string indexedName = sig.name + "[" + std::to_string(i) + "]";
+            auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, indexedName);
+            graph.nodes.push_back(std::move(n));
+            graph.outputs[indexedName] = graph.nodes.back().get();
+        }
+    }
+}
+
+// Pre-populate internal signal with all bit indices
+void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
+    graph.createSignal(sig.name);
+    if (sig.type.width > 1) {
+        for (int i = 0; i < sig.type.width; ++i) {
+            graph.createSignal(sig.name + "[" + std::to_string(i) + "]");
+        }
+    }
+}
+
+// Pre-populate flop .q and .d as signals (both are internal signals)
+void prePopulateFlopSignals(DFG& graph, const ResolvedSignal& flop) {
+    // .q (current flop state - read in sequential blocks)
+    graph.createSignal(flop.name + ".q");
+    // .d (next flop state - written in sequential blocks)
+    graph.createSignal(flop.name + ".d");
+
+    if (flop.type.width > 1) {
+        for (int i = 0; i < flop.type.width; ++i) {
+            graph.createSignal(flop.name + ".q[" + std::to_string(i) + "]");
+            graph.createSignal(flop.name + ".d[" + std::to_string(i) + "]");
+        }
+    }
 }
 
 } // anonymous namespace
@@ -1166,22 +1325,41 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         flopNames.insert(flop.name);
     }
 
-    // Resolve procedural combo
-    for (const auto& block : unresolved.proceduralComboBlocks) {
-        resolved.proceduralComboBlocks.push_back(resolveProceduralCombo(block, *mergedCtx, flopNames));
+    // === Create single DFG and pre-populate ===
+    resolved.dfg = std::make_unique<DFG>();
+    DFG& graph = *resolved.dfg;
+
+    // Pre-populate module INPUTS (ports only)
+    for (const auto& input : resolved.inputs) {
+        prePopulateInput(graph, input);
     }
 
-    // Resolve procedural timing
+    // Pre-populate module OUTPUTS (ports only, no driver yet)
+    for (const auto& output : resolved.outputs) {
+        prePopulateOutput(graph, output);
+    }
+
+    // Pre-populate internal SIGNALS (not ports)
+    for (const auto& signal : resolved.signals) {
+        prePopulateSignal(graph, signal);
+    }
+
+    // Pre-populate flops as SIGNALS (.q and .d are both signals)
+    for (const auto& flop : resolved.flops) {
+        prePopulateFlopSignals(graph, flop);
+    }
+
+    // === Resolve all blocks into the shared graph ===
+    for (const auto& block : unresolved.proceduralComboBlocks) {
+        resolveProceduralComboInPlace(block, graph, flopNames);
+    }
+
     for (const auto& block : unresolved.proceduralTimingBlocks) {
-        resolved.proceduralTimingBlocks.push_back(resolveProceduralTiming(block, *mergedCtx, flopNames));
+        resolveProceduralTimingInPlace(block, graph, flopNames);
     }
 
     for (const auto& assign : unresolved.assignStatements) {
-        auto assignments = resolveAssign(assign, *mergedCtx, flopNames);
-        resolved.assignStatements.insert(
-            resolved.assignStatements.end(),
-            std::make_move_iterator(assignments.begin()),
-            std::make_move_iterator(assignments.end()));
+        resolveAssignInPlace(assign, graph, flopNames);
     }
 
     return resolved;
