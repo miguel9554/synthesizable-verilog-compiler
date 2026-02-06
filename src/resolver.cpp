@@ -15,6 +15,7 @@
 #include <ostream>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -419,6 +420,43 @@ ResolvedType resolveType(
 
     return ResolvedType::makeInteger(width, is_signed);
 }
+std::string resolveSelectors(
+        const SyntaxList<ElementSelectSyntax>* selectors,
+        const ParameterContext& ctx
+        ){
+    std::string result;
+    for (const auto& selector: *selectors){
+        if (!selector->selector){
+            throw std::runtime_error("Selector must have a selector.");
+        }
+        if (selector->selector->kind != SyntaxKind::BitSelect){
+            throw std::runtime_error("Currently only can select single element.");
+        }
+        const auto& elementSelect = selector->selector->as<BitSelectSyntax>();
+        const auto value = evaluateConstantExpr(elementSelect.expr, ctx);
+        result += "[" + std::to_string(value) + "]";
+    }
+    return result;
+}
+DFGNode* resolveIdentifier(
+        const std::string baseName,
+        DFG& graph,
+        bool throw_on_not_found,
+        const std::set<std::string>& flopNames
+){
+    std::string signalName = baseName;
+
+    // In sequential blocks, flops on RHS use .q suffix
+    if (flopNames.contains(baseName)) {
+        signalName = baseName + ".q";
+    }
+    // Use lookupSignal helper - DO NOT CREATE
+    DFGNode* node = graph.lookupSignal(signalName);
+    if (throw_on_not_found && node == nullptr) {
+        throw std::runtime_error("Undeclared signal: '" + signalName + "'");
+    }
+    return node;
+}
 
 // Build DFG node directly from slang expression syntax
 // For sequential blocks (is_sequential=true), flop references on RHS use .q suffix
@@ -450,24 +488,19 @@ DFGNode* buildExprDFG(
         case SyntaxKind::IdentifierName: {
             auto& name = expr->as<IdentifierNameSyntax>();
             std::string baseName(name.identifier.valueText());
-            std::string signalName = baseName;
-            // In sequential blocks, flops on RHS use .q suffix
-            if (flopNames.contains(baseName)) {
-                signalName = baseName + ".q";
-            }
-            // Use lookupSignal helper - DO NOT CREATE
-            DFGNode* node = graph.lookupSignal(signalName);
-            if (node == nullptr) {
-                throw std::runtime_error("Undeclared signal: '" + signalName + "'");
-            }
+            const auto node = resolveIdentifier(
+                    baseName,
+                    graph,
+                    true,
+                    flopNames
+            );
             return node;
         }
 
         case SyntaxKind::IdentifierSelectName: {
             auto& idSelect = expr->as<IdentifierSelectNameSyntax>();
             std::string baseName(idSelect.identifier.valueText());
-            std::string selectors(idSelect.selectors.toString());
-            // std::string selectors = resolveSelectors(idSelect.selectors, ctx);
+            std::string selectors = resolveSelectors(&idSelect.selectors, ctx);
             std::string signalName;
             // In sequential blocks, flops on RHS use .q suffix
             if (is_sequential && flopNames.contains(baseName)) {
