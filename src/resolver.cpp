@@ -23,6 +23,15 @@ using namespace slang::syntax;
 
 namespace custom_hdl {
 
+// Context struct for resolution - bundles all parameters needed during DFG building
+struct ResolutionContext {
+    DFG& graph;
+    const std::set<std::string>& flopNames;
+    const ParameterContext& params;
+    bool is_sequential;
+    // TODO: Add ResolvedModule reference when needed
+};
+
 // ============================================================================
 // ResolvedType implementation
 // ============================================================================
@@ -167,10 +176,7 @@ int64_t parseIntegerVectorExpression(const IntegerVectorExpressionSyntax& vecExp
 // Forward declaration - in-place statement resolver
 void resolveStatementInPlace(
         const slang::syntax::StatementSyntax* statement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 );
 
 
@@ -461,11 +467,8 @@ DFGNode* resolveIdentifier(
 // Build DFG node directly from slang expression syntax
 // For sequential blocks (is_sequential=true), flop references on RHS use .q suffix
 DFGNode* buildExprDFG(
-        DFG& graph,
         const ExpressionSyntax* expr,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 ) {
     if (!expr) {
         throw std::runtime_error("Cannot build DFG from null expression");
@@ -476,13 +479,13 @@ DFGNode* buildExprDFG(
             auto& literal = expr->as<LiteralExpressionSyntax>();
             auto text = literal.literal.rawText();
             int64_t value = std::stoll(std::string(text));
-            return graph.constant(value);
+            return ctx.graph.constant(value);
         }
 
         case SyntaxKind::IntegerVectorExpression: {
             auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
             const auto value = parseIntegerVectorExpression(vecExpr);
-            return graph.constant(value);
+            return ctx.graph.constant(value);
         }
 
         case SyntaxKind::IdentifierName: {
@@ -490,9 +493,9 @@ DFGNode* buildExprDFG(
             std::string baseName(name.identifier.valueText());
             const auto node = resolveIdentifier(
                     baseName,
-                    graph,
+                    ctx.graph,
                     true,
-                    flopNames
+                    ctx.flopNames
             );
             return node;
         }
@@ -500,16 +503,16 @@ DFGNode* buildExprDFG(
         case SyntaxKind::IdentifierSelectName: {
             auto& idSelect = expr->as<IdentifierSelectNameSyntax>();
             std::string baseName(idSelect.identifier.valueText());
-            std::string selectors = resolveSelectors(&idSelect.selectors, ctx);
+            std::string selectors = resolveSelectors(&idSelect.selectors, ctx.params);
             std::string signalName;
             // In sequential blocks, flops on RHS use .q suffix
-            if (is_sequential && flopNames.contains(baseName)) {
+            if (ctx.is_sequential && ctx.flopNames.contains(baseName)) {
                 signalName = baseName + ".q" + selectors;
             } else {
                 signalName = baseName + selectors;
             }
             // Use lookupSignal helper - DO NOT CREATE
-            DFGNode* node = graph.lookupSignal(signalName);
+            DFGNode* node = ctx.graph.lookupSignal(signalName);
             if (node == nullptr) {
                 throw std::runtime_error("Undeclared signal: '" + signalName + "'");
             }
@@ -518,77 +521,77 @@ DFGNode* buildExprDFG(
 
         case SyntaxKind::ParenthesizedExpression: {
             auto& paren = expr->as<ParenthesizedExpressionSyntax>();
-            return buildExprDFG(graph, paren.expression, is_sequential, flopNames, ctx);
+            return buildExprDFG(paren.expression, ctx);
         }
 
         // Unary operations
         case SyntaxKind::UnaryPlusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.unaryPlus(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.unaryPlus(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryMinusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.unaryNegate(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.unaryNegate(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseAndExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionAnd(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionAnd(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseNandExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionNand(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionNand(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseOrExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionOr(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionOr(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseNorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionNor(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionNor(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseXorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionXor(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionXor(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseXnorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.reductionXnor(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.reductionXnor(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryLogicalNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.logicalNot(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.logicalNot(buildExprDFG(unary.operand, ctx));
         }
 
         case SyntaxKind::UnaryBitwiseNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return graph.bitwiseNot(buildExprDFG(graph, unary.operand, is_sequential, flopNames, ctx));
+            return ctx.graph.bitwiseNot(buildExprDFG(unary.operand, ctx));
         }
 
         // Binary operations
         case SyntaxKind::AddExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.add(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                           buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.add(buildExprDFG(binary.left, ctx),
+                                 buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::SubtractExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.sub(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                           buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.sub(buildExprDFG(binary.left, ctx),
+                                 buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::MultiplyExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.mul(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                           buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.mul(buildExprDFG(binary.left, ctx),
+                                 buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::DivideExpression: {
@@ -597,44 +600,44 @@ DFGNode* buildExprDFG(
 
         case SyntaxKind::EqualityExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.eq(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                          buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.eq(buildExprDFG(binary.left, ctx),
+                                buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::LessThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.lt(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                          buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.lt(buildExprDFG(binary.left, ctx),
+                                buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::LessThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.le(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                          buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.le(buildExprDFG(binary.left, ctx),
+                                buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::GreaterThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.gt(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                          buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.gt(buildExprDFG(binary.left, ctx),
+                                buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::GreaterThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.ge(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                          buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.ge(buildExprDFG(binary.left, ctx),
+                                buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::ArithmeticShiftLeftExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.shl(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                           buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.shl(buildExprDFG(binary.left, ctx),
+                                 buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::ArithmeticShiftRightExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return graph.asr(buildExprDFG(graph, binary.left, is_sequential, flopNames, ctx),
-                           buildExprDFG(graph, binary.right, is_sequential, flopNames, ctx));
+            return ctx.graph.asr(buildExprDFG(binary.left, ctx),
+                                 buildExprDFG(binary.right, ctx));
         }
 
         case SyntaxKind::ConditionalExpression: {
@@ -645,10 +648,10 @@ DFGNode* buildExprDFG(
             if (cond.predicate->conditions[0]->matchesClause) {
                 throw std::runtime_error("matches clause not supported in ternary expression");
             }
-            auto* condNode = buildExprDFG(graph, cond.predicate->conditions[0]->expr, is_sequential, flopNames, ctx);
-            auto* trueNode = buildExprDFG(graph, cond.left, is_sequential, flopNames, ctx);
-            auto* falseNode = buildExprDFG(graph, cond.right, is_sequential, flopNames, ctx);
-            return graph.mux(condNode, trueNode, falseNode);
+            auto* condNode = buildExprDFG(cond.predicate->conditions[0]->expr, ctx);
+            auto* trueNode = buildExprDFG(cond.left, ctx);
+            auto* falseNode = buildExprDFG(cond.right, ctx);
+            return ctx.graph.mux(condNode, trueNode, falseNode);
         }
 
         default:
@@ -661,9 +664,7 @@ DFGNode* buildExprDFG(
 // Resolve a continuous assignment in-place on the shared DFG
 void resolveAssignInPlace(
         const ContinuousAssignSyntax* syntax,
-        DFG& graph,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
     ){
     if (!syntax) throw std::runtime_error("Null pointer");
     if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
@@ -693,13 +694,13 @@ void resolveAssignInPlace(
 
         // Build DFG directly from expression
         // is_sequential=false (no .d suffix on LHS), but flopNames needed for .q on RHS
-        auto* exprNode = buildExprDFG(graph, binaryAssign.right, false, flopNames, ctx);
+        auto* exprNode = buildExprDFG(binaryAssign.right, ctx);
 
         // Connect driver to existing output or signal node
-        if (graph.outputs.contains(outputName)) {
-            graph.connectOutput(outputName, exprNode);
-        } else if (graph.signals.contains(outputName)) {
-            graph.connectSignal(outputName, exprNode);
+        if (ctx.graph.outputs.contains(outputName)) {
+            ctx.graph.connectOutput(outputName, exprNode);
+        } else if (ctx.graph.signals.contains(outputName)) {
+            ctx.graph.connectSignal(outputName, exprNode);
         } else {
             throw std::runtime_error("Cannot assign to undeclared: " + outputName);
         }
@@ -708,13 +709,10 @@ void resolveAssignInPlace(
 
 void resolveExpressionStatementInPlace(
         const ExpressionStatementSyntax* exprStatement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx){
+        ResolutionContext& ctx){
     auto& expr = exprStatement->expr;
-    const auto expectedKind = is_sequential ? SyntaxKind::NonblockingAssignmentExpression :
-                                              SyntaxKind::AssignmentExpression;
+    const auto expectedKind = ctx.is_sequential ? SyntaxKind::NonblockingAssignmentExpression :
+                                                  SyntaxKind::AssignmentExpression;
     if (expr->kind != expectedKind){
         throw std::runtime_error(
         "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
@@ -740,19 +738,19 @@ void resolveExpressionStatementInPlace(
 
     // In sequential blocks, flops on LHS use .d suffix
     std::string outputName;
-    if (is_sequential && flopNames.contains(baseName)) {
+    if (ctx.is_sequential && ctx.flopNames.contains(baseName)) {
         outputName = baseName + ".d" + selectors;
     } else {
         outputName = baseName + selectors;
     }
 
-    auto* exprNode = buildExprDFG(graph, right, is_sequential, flopNames, ctx);
+    auto* exprNode = buildExprDFG(right, ctx);
 
     // Connect driver to existing output or signal node
-    if (graph.outputs.contains(outputName)) {
-        graph.connectOutput(outputName, exprNode);
-    } else if (graph.signals.contains(outputName)) {
-        graph.connectSignal(outputName, exprNode);
+    if (ctx.graph.outputs.contains(outputName)) {
+        ctx.graph.connectOutput(outputName, exprNode);
+    } else if (ctx.graph.signals.contains(outputName)) {
+        ctx.graph.connectSignal(outputName, exprNode);
     } else {
         throw std::runtime_error("Cannot assign to undeclared: " + outputName);
     }
@@ -760,10 +758,7 @@ void resolveExpressionStatementInPlace(
 
 void resolveConditionalStatementInPlace(
         const ConditionalStatementSyntax* conditionalStatement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx){
+        ResolutionContext& ctx){
     const auto& predicate = conditionalStatement->predicate;
     if (conditionalStatement->uniqueOrPriority){
         throw std::runtime_error("Unique/priority not supported on if");
@@ -774,7 +769,7 @@ void resolveConditionalStatementInPlace(
     const auto& predicateExpr = predicate->conditions[0]->expr;
 
     // construct the signal node for the predicate expression
-    auto conditionNode = buildExprDFG(graph, predicateExpr, is_sequential, flopNames, ctx);
+    auto conditionNode = buildExprDFG(predicateExpr, ctx);
 
     // Extract driver nodes from outputs and signals
     // (we need to track what's connected before modifications)
@@ -793,33 +788,33 @@ void resolveConditionalStatementInPlace(
         return drivers;
     };
 
-    const auto oldDrivers = getDrivers(graph);
+    const auto oldDrivers = getDrivers(ctx.graph);
 
     if (conditionalStatement->elseClause) {
         const auto& elseClause = conditionalStatement->elseClause->clause;
         const auto& elseStatement = elseClause->as<StatementSyntax>();
-        resolveStatementInPlace(&elseStatement, graph, is_sequential, flopNames, ctx);
+        resolveStatementInPlace(&elseStatement, ctx);
     }
 
-    const auto elseDrivers = getDrivers(graph);
+    const auto elseDrivers = getDrivers(ctx.graph);
 
-    resolveStatementInPlace(conditionalStatement->statement, graph, is_sequential, flopNames, ctx);
+    resolveStatementInPlace(conditionalStatement->statement, ctx);
 
     // Helper to connect a signal (output or signal type)
-    auto connectSignalOrOutput = [&graph](const std::string& name, DFGNode* driver) {
-        if (graph.outputs.contains(name)) {
-            graph.connectOutput(name, driver);
-        } else if (graph.signals.contains(name)) {
-            graph.connectSignal(name, driver);
+    auto connectSignalOrOutput = [&ctx](const std::string& name, DFGNode* driver) {
+        if (ctx.graph.outputs.contains(name)) {
+            ctx.graph.connectOutput(name, driver);
+        } else if (ctx.graph.signals.contains(name)) {
+            ctx.graph.connectSignal(name, driver);
         }
     };
 
     // Helper to get current driver for a signal
-    auto getCurrentDriver = [&graph](const std::string& name) -> DFGNode* {
-        if (auto it = graph.outputs.find(name); it != graph.outputs.end()) {
+    auto getCurrentDriver = [&ctx](const std::string& name) -> DFGNode* {
+        if (auto it = ctx.graph.outputs.find(name); it != ctx.graph.outputs.end()) {
             return it->second->in.empty() ? nullptr : it->second->in[0];
         }
-        if (auto it = graph.signals.find(name); it != graph.signals.end()) {
+        if (auto it = ctx.graph.signals.find(name); it != ctx.graph.signals.end()) {
             return it->second->in.empty() ? nullptr : it->second->in[0];
         }
         return nullptr;
@@ -827,12 +822,12 @@ void resolveConditionalStatementInPlace(
 
     // Collect all signals that were assigned
     std::set<std::string> assignedSignals;
-    for (const auto& [name, _] : graph.outputs) {
+    for (const auto& [name, _] : ctx.graph.outputs) {
         if (getCurrentDriver(name) != nullptr) {
             assignedSignals.insert(name);
         }
     }
-    for (const auto& [name, _] : graph.signals) {
+    for (const auto& [name, _] : ctx.graph.signals) {
         if (getCurrentDriver(name) != nullptr) {
             assignedSignals.insert(name);
         }
@@ -852,7 +847,7 @@ void resolveConditionalStatementInPlace(
             auto it2 = oldDrivers.find(outName);
             if (it2 != oldDrivers.end()) {
                 oldDriver = it2->second;
-            } else if (is_sequential) {
+            } else if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = outName;
                 size_t dPos = qName.find(".d");
@@ -860,7 +855,7 @@ void resolveConditionalStatementInPlace(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                DFGNode* qNode = graph.lookupSignal(qName);
+                DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
@@ -873,7 +868,7 @@ void resolveConditionalStatementInPlace(
 
         if (oldDriver != newDriver) {
             // Add the mux!
-            const auto& muxOut = graph.mux(conditionNode, newDriver, oldDriver);
+            const auto& muxOut = ctx.graph.mux(conditionNode, newDriver, oldDriver);
             connectSignalOrOutput(outName, muxOut);
         }
     }
@@ -899,7 +894,7 @@ void resolveConditionalStatementInPlace(
 
         // Signal is only in ELSE, not in OLD and not in IF
         if (!oldDriver) {
-            if (is_sequential) {
+            if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = elseName;
                 size_t dPos = qName.find(".d");
@@ -907,7 +902,7 @@ void resolveConditionalStatementInPlace(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                DFGNode* qNode = graph.lookupSignal(qName);
+                DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
@@ -921,17 +916,14 @@ void resolveConditionalStatementInPlace(
         // Signal is in ELSE and OLD but not IF → add MUX
         // TRUE (condition true, IF branch): use oldDriver (IF didn't change it)
         // FALSE (condition false, ELSE branch): use elseDriver
-        auto muxOut = graph.mux(conditionNode, oldDriver, elseDriver);
+        auto muxOut = ctx.graph.mux(conditionNode, oldDriver, elseDriver);
         connectSignalOrOutput(elseName, muxOut);
     }
 }
 
 void resolveCaseStatementInPlace(
         const CaseStatementSyntax* caseStatement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx) {
+        ResolutionContext& ctx) {
 
     if (caseStatement->uniqueOrPriority) {
         throw std::runtime_error("unique/priority case not supported");
@@ -947,7 +939,7 @@ void resolveCaseStatementInPlace(
     }
 
     // Build the selector expression node
-    auto selectorNode = buildExprDFG(graph, caseStatement->expr, is_sequential, flopNames, ctx);
+    auto selectorNode = buildExprDFG(caseStatement->expr, ctx);
 
     // Extract driver nodes from outputs and signals
     auto getDrivers = [](const DFG& g) {
@@ -966,11 +958,11 @@ void resolveCaseStatementInPlace(
     };
 
     // Helper to connect a signal (output or signal type)
-    auto connectSignalOrOutput = [&graph](const std::string& name, DFGNode* driver) {
-        if (graph.outputs.contains(name)) {
-            graph.connectOutput(name, driver);
-        } else if (graph.signals.contains(name)) {
-            graph.connectSignal(name, driver);
+    auto connectSignalOrOutput = [&ctx](const std::string& name, DFGNode* driver) {
+        if (ctx.graph.outputs.contains(name)) {
+            ctx.graph.connectOutput(name, driver);
+        } else if (ctx.graph.signals.contains(name)) {
+            ctx.graph.connectSignal(name, driver);
         }
     };
 
@@ -981,7 +973,7 @@ void resolveCaseStatementInPlace(
         }
     };
 
-    const auto fallbackDrivers = getDrivers(graph);
+    const auto fallbackDrivers = getDrivers(ctx.graph);
 
     // Collect info for each case
     struct CaseInfo {
@@ -996,8 +988,8 @@ void resolveCaseStatementInPlace(
             const auto& defaultItem = item->as<DefaultCaseItemSyntax>();
             // Reset to fallback state before processing
             restoreDrivers(fallbackDrivers);
-            resolveStatementInPlace(&defaultItem.clause->as<StatementSyntax>(), graph, is_sequential, flopNames, ctx);
-            defaultDrivers = getDrivers(graph);
+            resolveStatementInPlace(&defaultItem.clause->as<StatementSyntax>(), ctx);
+            defaultDrivers = getDrivers(ctx.graph);
         } else if (item->kind == SyntaxKind::StandardCaseItem) {
             const auto& caseItem = item->as<StandardCaseItemSyntax>();
 
@@ -1006,15 +998,15 @@ void resolveCaseStatementInPlace(
             }
 
             // Build condition: selector == case_value
-            auto caseValueNode = buildExprDFG(graph, caseItem.expressions[0], is_sequential, flopNames, ctx);
-            auto conditionNode = graph.eq(selectorNode, caseValueNode);
+            auto caseValueNode = buildExprDFG(caseItem.expressions[0], ctx);
+            auto conditionNode = ctx.graph.eq(selectorNode, caseValueNode);
 
             // Reset to fallback state before processing
             restoreDrivers(fallbackDrivers);
 
             // Process case body
-            resolveStatementInPlace(&caseItem.clause->as<StatementSyntax>(), graph, is_sequential, flopNames, ctx);
-            normalCases.push_back({conditionNode, getDrivers(graph)});
+            resolveStatementInPlace(&caseItem.clause->as<StatementSyntax>(), ctx);
+            normalCases.push_back({conditionNode, getDrivers(ctx.graph)});
         } else {
             throw std::runtime_error(
                 "Unsupported case item kind: " + std::string(toString(item->kind)));
@@ -1068,7 +1060,7 @@ void resolveCaseStatementInPlace(
                 caseValue = it->second;
             } else if (defaultValue) {
                 caseValue = defaultValue;
-            } else if (is_sequential) {
+            } else if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = signalName;
                 size_t dPos = qName.find(".d");
@@ -1076,7 +1068,7 @@ void resolveCaseStatementInPlace(
                     qName.replace(dPos, 2, ".q");
                 }
                 // Look up the .q signal node
-                DFGNode* qNode = graph.lookupSignal(qName);
+                DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
                     throw std::runtime_error("Could not find .q signal: " + qName);
                 }
@@ -1098,14 +1090,14 @@ void resolveCaseStatementInPlace(
             // Each MUX: if selector[i] matches, use dataValues[i], else use previous result
             result = defaultValue;
             for (size_t i = 0; i < selectors.size(); ++i) {
-                result = graph.mux(selectors[i], dataValues[i], result);
+                result = ctx.graph.mux(selectors[i], dataValues[i], result);
             }
         } else {
             // No default: use MUX_N directly (assumes cases are exhaustive/one-hot)
             if (selectors.size() == 1) {
                 result = dataValues[0];
             } else {
-                result = graph.muxN(selectors, dataValues);
+                result = ctx.graph.muxN(selectors, dataValues);
             }
         }
 
@@ -1115,43 +1107,37 @@ void resolveCaseStatementInPlace(
 
 void resolveSequentialBlockStatementInPlace(
         const slang::syntax::BlockStatementSyntax* seqStatement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 ){
     for (const auto* item: seqStatement->items){
         const auto& statement = item->as<StatementSyntax>();
-        resolveStatementInPlace(&statement, graph, is_sequential, flopNames, ctx);
+        resolveStatementInPlace(&statement, ctx);
     }
 }
 
 void resolveStatementInPlace(
         const slang::syntax::StatementSyntax* statement,
-        DFG& graph,
-        bool is_sequential,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 ){
     switch (statement->kind){
         case SyntaxKind::SequentialBlockStatement:{
             const auto& seqStatement = statement->as<BlockStatementSyntax>();
-            resolveSequentialBlockStatementInPlace(&seqStatement, graph, is_sequential, flopNames, ctx);
+            resolveSequentialBlockStatementInPlace(&seqStatement, ctx);
             break;
         }
         case SyntaxKind::ExpressionStatement:{
             const auto& exprStatement = statement->as<ExpressionStatementSyntax>();
-            resolveExpressionStatementInPlace(&exprStatement, graph, is_sequential, flopNames, ctx);
+            resolveExpressionStatementInPlace(&exprStatement, ctx);
             break;
         }
         case SyntaxKind::ConditionalStatement:{
             const auto& conditionalStatement = statement->as<ConditionalStatementSyntax>();
-            resolveConditionalStatementInPlace(&conditionalStatement, graph, is_sequential, flopNames, ctx);
+            resolveConditionalStatementInPlace(&conditionalStatement, ctx);
             break;
         }
         case SyntaxKind::CaseStatement:{
             const auto& caseStmt = statement->as<CaseStatementSyntax>();
-            resolveCaseStatementInPlace(&caseStmt, graph, is_sequential, flopNames, ctx);
+            resolveCaseStatementInPlace(&caseStmt, ctx);
             break;
         }
 
@@ -1164,16 +1150,15 @@ void resolveStatementInPlace(
 // Resolve procedural combo block in-place on shared DFG
 void resolveProceduralComboInPlace(
         const UnresolvedTypes::ProceduralCombo& statement,
-        DFG& graph,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 ){
     if (statement->kind != SyntaxKind::SequentialBlockStatement){
         throw std::runtime_error(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
-    // always_comb is not sequential, but we still pass flopNames for reference lookups
-    resolveStatementInPlace(statement, graph, false, flopNames, ctx);
+    // always_comb is not sequential
+    ctx.is_sequential = false;
+    resolveStatementInPlace(statement, ctx);
 }
 
 typedef enum {
@@ -1237,26 +1222,23 @@ std::vector<asyncTrigger_t> extractAsyncTriggers(
 // Resolve procedural timing block in-place on shared DFG
 void resolveProceduralTimingInPlace(
         const UnresolvedTypes::ProceduralTiming& timingStatement,
-        DFG& graph,
-        const std::set<std::string>& flopNames,
-        const ParameterContext& ctx
+        ResolutionContext& ctx
 ){
     const auto& timingControl = timingStatement->timingControl;
     const auto& statement = timingStatement->statement;
-    bool is_sequential;
     std::vector<asyncTrigger_t> triggers;
 
     switch (timingControl->kind){
         case SyntaxKind::ImplicitEventControl:
             std::cout << "We are on combo procedural" << std::endl;
-            is_sequential = false;
+            ctx.is_sequential = false;
             break;
         case SyntaxKind::EventControlWithExpression:{
             std::cout << "We are on flop procedural" << std::endl;
             const auto& eventControl = timingControl->as<EventControlWithExpressionSyntax>();
             triggers = extractAsyncTriggers((eventControl.expr), triggers);
             std::cout << "Triggers:\n";
-            is_sequential = true;
+            ctx.is_sequential = true;
             break;
         }
         default:
@@ -1264,7 +1246,7 @@ void resolveProceduralTimingInPlace(
                 "Not supported timing control: " + std::string(toString(timingControl->kind)));
 
     }
-    resolveStatementInPlace(statement, graph, is_sequential, flopNames, ctx);
+    resolveStatementInPlace(statement, ctx);
 }
 
 ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterContext& ctx) {
@@ -1404,16 +1386,19 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     }
 
     // === Resolve all blocks into the shared graph ===
+    // Create resolution context
+    ResolutionContext resCtx{graph, flopNames, *mergedCtx, false};
+
     for (const auto& block : unresolved.proceduralComboBlocks) {
-        resolveProceduralComboInPlace(block, graph, flopNames, *mergedCtx);
+        resolveProceduralComboInPlace(block, resCtx);
     }
 
     for (const auto& block : unresolved.proceduralTimingBlocks) {
-        resolveProceduralTimingInPlace(block, graph, flopNames, *mergedCtx);
+        resolveProceduralTimingInPlace(block, resCtx);
     }
 
     for (const auto& assign : unresolved.assignStatements) {
-        resolveAssignInPlace(assign, graph, flopNames, *mergedCtx);
+        resolveAssignInPlace(assign, resCtx);
     }
 
     return resolved;
