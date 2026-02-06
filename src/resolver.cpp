@@ -669,9 +669,17 @@ std::unique_ptr<DFG> resolveConditionalStatement(
             auto it = oldDrivers.find(outName);
             if (it != oldDrivers.end() && !outNode->in.empty()) {
                 oldDriver = it->second;
+            } else if (is_sequential) {
+                // In sequential blocks, use .q as fallback (flop retains value)
+                std::string qName = outName;
+                size_t dPos = qName.find(".d");
+                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
+                    qName.replace(dPos, 2, ".q");
+                }
+                oldDriver = graph->input(qName);
             } else {
-            throw std::runtime_error(
-                "Signal is not assigned in IF branch but not other: " + outName);
+                throw std::runtime_error(
+                    "Signal is not assigned in IF branch but not other: " + outName);
             }
         }
 
@@ -702,10 +710,20 @@ std::unique_ptr<DFG> resolveConditionalStatement(
             continue;
         }
 
-        // Signal is only in ELSE, not in OLD and not in IF → error
+        // Signal is only in ELSE, not in OLD and not in IF
         if (!oldDriver) {
-            throw std::runtime_error(
-                "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
+            if (is_sequential) {
+                // In sequential blocks, use .q as fallback (flop retains value)
+                std::string qName = elseName;
+                size_t dPos = qName.find(".d");
+                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
+                    qName.replace(dPos, 2, ".q");
+                }
+                oldDriver = graph->input(qName);
+            } else {
+                throw std::runtime_error(
+                    "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
+            }
         }
 
         // Signal is in ELSE and OLD but not IF → add MUX
@@ -842,6 +860,16 @@ std::unique_ptr<DFG> resolveCaseStatement(
                 caseValue = it->second;
             } else if (defaultValue) {
                 caseValue = defaultValue;
+            } else if (is_sequential) {
+                // In sequential blocks, use .q as fallback (flop retains value)
+                std::string qName = signalName;
+                size_t dPos = qName.find(".d");
+                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
+                    qName.replace(dPos, 2, ".q");
+                }
+                caseValue = graph->input(qName);
+                // Also set defaultValue so subsequent branches use the same node
+                defaultValue = caseValue;
             } else {
                 throw std::runtime_error(
                     "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback");
