@@ -667,13 +667,12 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     // Build the Expr graph of the RHS
     auto* RHSexprNode = buildExprDFG(right, ctx);
 
-    // Get the base name and full name for LHS
+    // Get the base name and selectors for LHS
     std::string baseName;
-    const SyntaxList<ElementSelectSyntax>* selectors;
+    const SyntaxList<ElementSelectSyntax>* selectors = nullptr;
     if (left->kind == SyntaxKind::IdentifierName) {
         const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
         baseName = identifier.identifier.valueText();
-        selectors = nullptr;
     } else if (left->kind == SyntaxKind::IdentifierSelectName) {
         const auto& identifier = left->as<IdentifierSelectNameSyntax>();
         baseName = identifier.identifier.valueText();
@@ -683,45 +682,51 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
         "Left can only be variable name: " + std::string(toString(left->kind)));
     }
 
-    // In sequential blocks, flops on LHS use .d suffix
-    std::string outputName;
-    if (ctx.is_sequential) {
-        if (ctx.flopNames.contains(baseName)){
-            outputName = baseName + ".d";
-        } else {
-            throw std::runtime_error(
-            std::format("{} NOT a flop and assigned on seq. block", baseName));
-        }
-    } else {
-        outputName = baseName;
-    }
-
-    // Get the node for the signal
-    auto indexedSignalNode = RHSexprNode;
-
-    // If there are selectors, construct the index list
-    if (selectors){
-        for (const auto& elemSelect: *selectors){
-            if (!elemSelect->selector){
-                throw std::runtime_error(
-                    "Empty selector not allowed.");
+    // Build the full element name for LHS by evaluating selectors statically
+    std::string indexSuffix;
+    if (selectors) {
+        for (const auto& elemSelect : *selectors) {
+            if (!elemSelect->selector) {
+                throw std::runtime_error("Empty selector not allowed.");
             }
-            if (elemSelect->selector->kind != SyntaxKind::BitSelect){
+            if (elemSelect->selector->kind != SyntaxKind::BitSelect) {
                 throw std::runtime_error(
                     "Currently only single element select supported.");
             }
             const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
             const auto& selectorExpr = bitSelect.expr;
-            auto* selectorExprNode = buildExprDFG(selectorExpr, ctx);
-            indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode);
+
+            // Try to evaluate the index statically
+            try {
+                int64_t idx = evaluateConstantExpr(selectorExpr, ctx.params);
+                indexSuffix += "[" + std::to_string(idx) + "]";
+            } catch (const std::runtime_error&) {
+                throw std::runtime_error(
+                    "Dynamic index on LHS not supported for: " + baseName);
+            }
         }
+    }
+
+    // Build the full output name
+    // For sequential blocks with flops: base[idx].d
+    // For combinational: base[idx] or just base
+    std::string outputName;
+    if (ctx.is_sequential) {
+        if (ctx.flopNames.contains(baseName)) {
+            outputName = baseName + indexSuffix + ".d";
+        } else {
+            throw std::runtime_error(
+                std::format("{} NOT a flop and assigned on seq. block", baseName));
+        }
+    } else {
+        outputName = baseName + indexSuffix;
     }
 
     // Connect driver to existing output or signal node
     if (ctx.graph.outputs.contains(outputName)) {
-        ctx.graph.connectOutput(outputName, indexedSignalNode);
+        ctx.graph.connectOutput(outputName, RHSexprNode);
     } else if (ctx.graph.signals.contains(outputName)) {
-        ctx.graph.connectSignal(outputName, indexedSignalNode);
+        ctx.graph.connectSignal(outputName, RHSexprNode);
     } else {
         throw std::runtime_error("Cannot assign to undeclared: " + outputName);
     }
@@ -858,9 +863,8 @@ void resolveConditionalStatementInPlace(
             } else if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = outName;
-                size_t dPos = qName.find(".d");
-                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
-                    qName.replace(dPos, 2, ".q");
+                if (qName.ends_with(".d")) {
+                    qName = qName.substr(0, qName.length() - 2) + ".q";
                 }
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
@@ -905,9 +909,8 @@ void resolveConditionalStatementInPlace(
             if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = elseName;
-                size_t dPos = qName.find(".d");
-                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
-                    qName.replace(dPos, 2, ".q");
+                if (qName.ends_with(".d")) {
+                    qName = qName.substr(0, qName.length() - 2) + ".q";
                 }
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
@@ -1071,9 +1074,8 @@ void resolveCaseStatementInPlace(
             } else if (ctx.is_sequential) {
                 // In sequential blocks, use .q as fallback (flop retains value)
                 std::string qName = signalName;
-                size_t dPos = qName.find(".d");
-                if (dPos != std::string::npos && (dPos + 2 == qName.size() || qName[dPos + 2] == '[')) {
-                    qName.replace(dPos, 2, ".q");
+                if (qName.ends_with(".d")) {
+                    qName = qName.substr(0, qName.length() - 2) + ".q";
                 }
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
@@ -1280,22 +1282,98 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 // Pre-population helpers for DFG
 // ============================================================================
 
+// Generate all index suffixes for multi-dimensional arrays
+// For [0:1], returns ["[0]", "[1]"]
+// For [0:1][0:1], returns ["[0][0]", "[0][1]", "[1][0]", "[1][1]"]
+std::vector<std::string> generateIndexSuffixes(const std::vector<ResolvedDimension>& dimensions) {
+    if (dimensions.empty()) {
+        return {""};
+    }
+
+    std::vector<std::string> result = {""};
+    for (const auto& dim : dimensions) {
+        std::vector<std::string> newResult;
+        int step = (dim.left <= dim.right) ? 1 : -1;
+        for (int i = dim.left; step > 0 ? i <= dim.right : i >= dim.right; i += step) {
+            for (const auto& prefix : result) {
+                newResult.push_back(prefix + "[" + std::to_string(i) + "]");
+            }
+        }
+        result = std::move(newResult);
+    }
+    return result;
+}
+
 // Pre-populate module input (port) with all bit indices
+// For vector inputs, creates base node + individual element nodes
 void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
-    graph.input(sig.name);
+    if (sig.dimensions.empty()) {
+        graph.input(sig.name);
+    } else {
+        // Create base node for dynamic read access
+        graph.input(sig.name);
+        // Create individual element nodes
+        for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
+            graph.input(sig.name + suffix);
+        }
+    }
 }
 
 // Pre-populate module output (port) with all bit indices
 // Creates OUTPUT nodes with no driver (->in empty)
+// For vector outputs, creates base node + individual element nodes
 void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
-    auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
-    graph.nodes.push_back(std::move(n));
-    graph.outputs[sig.name] = graph.nodes.back().get();
+    if (sig.dimensions.empty()) {
+        auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+        graph.nodes.push_back(std::move(n));
+        graph.outputs[sig.name] = graph.nodes.back().get();
+    } else {
+        // Create base node for dynamic read access
+        auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+        graph.nodes.push_back(std::move(n));
+        graph.outputs[sig.name] = graph.nodes.back().get();
+        // Create individual element nodes
+        for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
+            auto elemNode = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name + suffix);
+            graph.nodes.push_back(std::move(elemNode));
+            graph.outputs[sig.name + suffix] = graph.nodes.back().get();
+        }
+    }
 }
 
 // Pre-populate internal signal with all bit indices
+// For vector signals, creates individual element nodes
+// For flop .d/.q signals, handles special naming (my_flop[idx].d)
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
-    graph.signal(sig.name);
+    if (sig.dimensions.empty()) {
+        graph.signal(sig.name);
+    } else {
+        // Check if this is a flop .d or .q signal
+        bool isDotD = sig.name.ends_with(".d");
+        bool isDotQ = sig.name.ends_with(".q");
+
+        if (isDotD || isDotQ) {
+            // Flop signal: extract base name and suffix
+            std::string baseName = sig.name.substr(0, sig.name.length() - 2);
+            std::string typeSuffix = sig.name.substr(sig.name.length() - 2);
+
+            // Create aggreagte node for dyanmic access
+            graph.signal(sig.name);
+
+            // Create individual element nodes
+            // Format: base[idx].d or base[idx].q
+            for (const auto& idxSuffix : generateIndexSuffixes(sig.dimensions)) {
+                std::string elemName = baseName + idxSuffix + typeSuffix;
+                graph.signal(elemName);
+            }
+        } else {
+            // Regular signal: create base node + elements
+            graph.signal(sig.name);
+            for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
+                graph.signal(sig.name + suffix);
+            }
+        }
+    }
 }
 
 } // anonymous namespace
@@ -1375,6 +1453,30 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     for (const auto& assign : unresolved.assignStatements) {
         resolveAssignInPlace(assign, resCtx);
+    }
+
+    // Connect flop outputs to their .q signals
+    for (const auto& output : resolved.outputs) {
+        if (flopNames.contains(output.name)) {
+            if (output.dimensions.empty()) {
+                // Scalar flop output: connect output to name.q
+                std::string qName = output.name + ".q";
+                DFGNode* qNode = graph.lookupSignal(qName);
+                if (qNode) {
+                    graph.connectOutput(output.name, qNode);
+                }
+            } else {
+                // Vector flop output: connect each element
+                for (const auto& suffix : generateIndexSuffixes(output.dimensions)) {
+                    std::string elemOutput = output.name + suffix;
+                    std::string elemQ = output.name + suffix + ".q";
+                    DFGNode* qNode = graph.lookupSignal(elemQ);
+                    if (qNode && graph.outputs.contains(elemOutput)) {
+                        graph.connectOutput(elemOutput, qNode);
+                    }
+                }
+            }
+        }
     }
 
     return resolved;
