@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -26,6 +27,7 @@ namespace custom_hdl {
 // Context struct for resolution - bundles all parameters needed during DFG building
 struct ResolutionContext {
     DFG& graph;
+    ResolvedModule* thisModule;
     const std::set<std::string>& flopNames;
     const ParameterContext& params;
     bool is_sequential;
@@ -426,24 +428,7 @@ ResolvedType resolveType(
 
     return ResolvedType::makeInteger(width, is_signed);
 }
-std::string resolveSelectors(
-        const SyntaxList<ElementSelectSyntax>* selectors,
-        const ParameterContext& ctx
-        ){
-    std::string result;
-    for (const auto& selector: *selectors){
-        if (!selector->selector){
-            throw std::runtime_error("Selector must have a selector.");
-        }
-        if (selector->selector->kind != SyntaxKind::BitSelect){
-            throw std::runtime_error("Currently only can select single element.");
-        }
-        const auto& elementSelect = selector->selector->as<BitSelectSyntax>();
-        const auto value = evaluateConstantExpr(elementSelect.expr, ctx);
-        result += "[" + std::to_string(value) + "]";
-    }
-    return result;
-}
+
 DFGNode* resolveIdentifier(
         const std::string baseName,
         DFG& graph,
@@ -501,22 +486,35 @@ DFGNode* buildExprDFG(
         }
 
         case SyntaxKind::IdentifierSelectName: {
-            auto& idSelect = expr->as<IdentifierSelectNameSyntax>();
-            std::string baseName(idSelect.identifier.valueText());
-            std::string selectors = resolveSelectors(&idSelect.selectors, ctx.params);
-            std::string signalName;
-            // In sequential blocks, flops on RHS use .q suffix
-            if (ctx.is_sequential && ctx.flopNames.contains(baseName)) {
-                signalName = baseName + ".q" + selectors;
-            } else {
-                signalName = baseName + selectors;
+            auto& name = expr->as<IdentifierSelectNameSyntax>();
+            std::string baseName(name.identifier.valueText());
+            const auto node = resolveIdentifier(
+                    baseName,
+                    ctx.graph,
+                    true,
+                    ctx.flopNames
+            );
+            const auto selectors = &name.selectors;
+            auto indexedSignalNode = node;
+
+            if (selectors){
+                for (const auto& elemSelect: *selectors){
+                    if (!elemSelect->selector){
+                        throw std::runtime_error(
+                            "Empty selector not allowed.");
+                    }
+                    if (elemSelect->selector->kind != SyntaxKind::BitSelect){
+                        throw std::runtime_error(
+                            "Currently only single element select supported.");
+                    }
+                    const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
+                    const auto& selectorExpr = bitSelect.expr;
+                    auto* selectorExprNode = buildExprDFG(selectorExpr, ctx);
+                    indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode);
+                }
             }
-            // Use lookupSignal helper - DO NOT CREATE
-            DFGNode* node = ctx.graph.lookupSignal(signalName);
-            if (node == nullptr) {
-                throw std::runtime_error("Undeclared signal: '" + signalName + "'");
-            }
-            return node;
+
+            return indexedSignalNode;
         }
 
         case SyntaxKind::ParenthesizedExpression: {
@@ -661,6 +659,74 @@ DFGNode* buildExprDFG(
     }
 }
 
+void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
+        ResolutionContext& ctx){
+    const auto& left = assignExpr.left;
+    const auto& right = assignExpr.right;
+
+    // Build the Expr graph of the RHS
+    auto* RHSexprNode = buildExprDFG(right, ctx);
+
+    // Get the base name and full name for LHS
+    std::string baseName;
+    const SyntaxList<ElementSelectSyntax>* selectors;
+    if (left->kind == SyntaxKind::IdentifierName) {
+        const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
+        baseName = identifier.identifier.valueText();
+        selectors = nullptr;
+    } else if (left->kind == SyntaxKind::IdentifierSelectName) {
+        const auto& identifier = left->as<IdentifierSelectNameSyntax>();
+        baseName = identifier.identifier.valueText();
+        selectors = &identifier.selectors;
+    } else {
+        throw std::runtime_error(
+        "Left can only be variable name: " + std::string(toString(left->kind)));
+    }
+
+    // In sequential blocks, flops on LHS use .d suffix
+    std::string outputName;
+    if (ctx.is_sequential) {
+        if (ctx.flopNames.contains(baseName)){
+            outputName = baseName + ".d";
+        } else {
+            throw std::runtime_error(
+            std::format("{} NOT a flop and assigned on seq. block", baseName));
+        }
+    } else {
+        outputName = baseName;
+    }
+
+    // Get the node for the signal
+    auto indexedSignalNode = RHSexprNode;
+
+    // If there are selectors, construct the index list
+    if (selectors){
+        for (const auto& elemSelect: *selectors){
+            if (!elemSelect->selector){
+                throw std::runtime_error(
+                    "Empty selector not allowed.");
+            }
+            if (elemSelect->selector->kind != SyntaxKind::BitSelect){
+                throw std::runtime_error(
+                    "Currently only single element select supported.");
+            }
+            const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
+            const auto& selectorExpr = bitSelect.expr;
+            auto* selectorExprNode = buildExprDFG(selectorExpr, ctx);
+            indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode);
+        }
+    }
+
+    // Connect driver to existing output or signal node
+    if (ctx.graph.outputs.contains(outputName)) {
+        ctx.graph.connectOutput(outputName, indexedSignalNode);
+    } else if (ctx.graph.signals.contains(outputName)) {
+        ctx.graph.connectSignal(outputName, indexedSignalNode);
+    } else {
+        throw std::runtime_error("Cannot assign to undeclared: " + outputName);
+    }
+}
+
 // Resolve a continuous assignment in-place on the shared DFG
 void resolveAssignInPlace(
         const ContinuousAssignSyntax* syntax,
@@ -670,6 +736,8 @@ void resolveAssignInPlace(
     if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
     if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
 
+    ctx.is_sequential = false;
+
     for (const auto* assignExpr : syntax->assignments) {
         if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
             throw std::runtime_error(
@@ -677,33 +745,8 @@ void resolveAssignInPlace(
                 std::string(toString(assignExpr->kind)));
         }
 
-        auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
-
-        // Get output name from left side
-        std::string outputName;
-        if (binaryAssign.left->kind == SyntaxKind::IdentifierName) {
-            const auto& identifier = binaryAssign.left->as<IdentifierNameSyntax>();
-            outputName = identifier.identifier.valueText();
-        } else if (binaryAssign.left->kind == SyntaxKind::IdentifierSelectName) {
-            const auto& identifier = binaryAssign.left->as<IdentifierSelectNameSyntax>();
-            outputName = std::string(identifier.identifier.valueText()) + std::string(identifier.selectors.toString());
-        } else {
-            throw std::runtime_error(
-                "Left side must be identifier: " + std::string(toString(binaryAssign.left->kind)));
-        }
-
-        // Build DFG directly from expression
-        // is_sequential=false (no .d suffix on LHS), but flopNames needed for .q on RHS
-        auto* exprNode = buildExprDFG(binaryAssign.right, ctx);
-
-        // Connect driver to existing output or signal node
-        if (ctx.graph.outputs.contains(outputName)) {
-            ctx.graph.connectOutput(outputName, exprNode);
-        } else if (ctx.graph.signals.contains(outputName)) {
-            ctx.graph.connectSignal(outputName, exprNode);
-        } else {
-            throw std::runtime_error("Cannot assign to undeclared: " + outputName);
-        }
+        const auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
+        resolveAssignExpression(binaryAssign, ctx);
     }
 }
 
@@ -718,42 +761,7 @@ void resolveExpressionStatementInPlace(
         "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
     }
     const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
-    const auto& left = assignExpr.left;
-    const auto& right = assignExpr.right;
-
-    // Get the base name and full name for LHS
-    std::string baseName;
-    std::string selectors;
-    if (left->kind == SyntaxKind::IdentifierName) {
-        const auto& identifier = left->as<slang::syntax::IdentifierNameSyntax>();
-        baseName = identifier.identifier.valueText();
-    } else if (left->kind == SyntaxKind::IdentifierSelectName) {
-        const auto& identifier = left->as<IdentifierSelectNameSyntax>();
-        baseName = identifier.identifier.valueText();
-        selectors = identifier.selectors.toString();
-    } else {
-        throw std::runtime_error(
-        "Left can only be variable name: " + std::string(toString(left->kind)));
-    }
-
-    // In sequential blocks, flops on LHS use .d suffix
-    std::string outputName;
-    if (ctx.is_sequential && ctx.flopNames.contains(baseName)) {
-        outputName = baseName + ".d" + selectors;
-    } else {
-        outputName = baseName + selectors;
-    }
-
-    auto* exprNode = buildExprDFG(right, ctx);
-
-    // Connect driver to existing output or signal node
-    if (ctx.graph.outputs.contains(outputName)) {
-        ctx.graph.connectOutput(outputName, exprNode);
-    } else if (ctx.graph.signals.contains(outputName)) {
-        ctx.graph.connectSignal(outputName, exprNode);
-    } else {
-        throw std::runtime_error("Cannot assign to undeclared: " + outputName);
-    }
+    resolveAssignExpression(assignExpr, ctx);
 }
 
 void resolveConditionalStatementInPlace(
@@ -1272,54 +1280,22 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
 // Pre-population helpers for DFG
 // ============================================================================
 
-std::vector<std::string>
-generateVectorNames(const ResolvedSignal& sig)
-{
-    std::vector<std::string> names = { sig.name };
-
-    for (const auto& dim : sig.dimensions) {
-        std::vector<std::string> next;
-
-        for (int i = dim.left; i <= dim.right; ++i) {
-            for (const auto& base : names) {
-                next.push_back(
-                    base + "[" + std::to_string(i) + "]"
-                );
-            }
-        }
-
-        names = std::move(next);
-    }
-
-    for (const auto& name : names) {
-        std::cout << name << std::endl;
-    }
-
-    return names;
-}
-
 // Pre-populate module input (port) with all bit indices
 void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
-    for (const auto& name : generateVectorNames(sig)) {
-        graph.input(name);
-    }
+    graph.input(sig.name);
 }
 
 // Pre-populate module output (port) with all bit indices
 // Creates OUTPUT nodes with no driver (->in empty)
 void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
-    for (const auto& name : generateVectorNames(sig)) {
-        auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, name);
-        graph.nodes.push_back(std::move(n));
-        graph.outputs[name] = graph.nodes.back().get();
-    }
+    auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+    graph.nodes.push_back(std::move(n));
+    graph.outputs[sig.name] = graph.nodes.back().get();
 }
 
 // Pre-populate internal signal with all bit indices
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
-    for (const auto& name : generateVectorNames(sig)) {
-        graph.signal(name);
-    }
+    graph.signal(sig.name);
 }
 
 } // anonymous namespace
@@ -1387,7 +1363,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // === Resolve all blocks into the shared graph ===
     // Create resolution context
-    ResolutionContext resCtx{graph, flopNames, *mergedCtx, false};
+    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, false};
 
     for (const auto& block : unresolved.proceduralComboBlocks) {
         resolveProceduralComboInPlace(block, resCtx);

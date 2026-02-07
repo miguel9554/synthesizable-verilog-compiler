@@ -113,9 +113,7 @@ struct DFG {
 
     // Lookup signal for READING in expressions
     // Returns the node representing the signal's value
-    // Handles array indexing like my_array[0][1] by creating INDEX nodes
-    DFGNode* lookupSignal(const std::string& name) {
-        // First try exact match
+    DFGNode* lookupSignal(const std::string& name) const {
         if (auto it = inputs.find(name); it != inputs.end()) return it->second;
         if (auto it = signals.find(name); it != signals.end()) return it->second;
         if (auto it = outputs.find(name); it != outputs.end()) {
@@ -123,43 +121,7 @@ struct DFG {
             auto* outNode = it->second;
             return outNode->in.empty() ? outNode : outNode->in[0];
         }
-
-        // Not found - check if this is an array index pattern like name[N] or name[N][M]...
-        // Find the last '[' that has a matching ']' at the end
-        if (name.empty() || name.back() != ']') {
-            return nullptr;
-        }
-
-        // Find the matching '[' for the last ']'
-        size_t bracketEnd = name.size() - 1;
-        size_t bracketStart = name.rfind('[');
-        if (bracketStart == std::string::npos) {
-            return nullptr;
-        }
-
-        // Extract the base name (everything before the last [N])
-        std::string baseName = name.substr(0, bracketStart);
-
-        // Extract the index value between [ and ]
-        std::string indexStr = name.substr(bracketStart + 1, bracketEnd - bracketStart - 1);
-
-        // Parse the index as an integer
-        int64_t indexVal;
-        try {
-            indexVal = std::stoll(indexStr);
-        } catch (...) {
-            return nullptr;  // Not a valid integer index
-        }
-
-        // Recursively look up the base signal
-        DFGNode* baseNode = lookupSignal(baseName);
-        if (!baseNode) {
-            return nullptr;
-        }
-
-        // Create an INDEX node: base[indexVal]
-        DFGNode* indexNode = constant(indexVal);
-        return index(baseNode, indexNode, name);
+        return nullptr;
     }
 
     // Connect a driver to an existing output node
