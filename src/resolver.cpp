@@ -1347,32 +1347,26 @@ void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     if (sig.dimensions.empty()) {
         graph.signal(sig.name);
-    } else {
-        // Check if this is a flop .d or .q signal
-        bool isDotD = sig.name.ends_with(".d");
-        bool isDotQ = sig.name.ends_with(".q");
+        return;
+    }
 
-        if (isDotD || isDotQ) {
-            // Flop signal: extract base name and suffix
-            std::string baseName = sig.name.substr(0, sig.name.length() - 2);
-            std::string typeSuffix = sig.name.substr(sig.name.length() - 2);
+    // Extract base name and optional type suffix for flop signals (.d or .q)
+    std::string baseName = sig.name;
+    std::string typeSuffix;
 
-            // Create aggreagte node for dyanmic access
-            graph.signal(sig.name);
+    if (sig.name.ends_with(".d") || sig.name.ends_with(".q")) {
+        baseName = sig.name.substr(0, sig.name.length() - 2);
+        typeSuffix = sig.name.substr(sig.name.length() - 2);
+    }
 
-            // Create individual element nodes
-            // Format: base[idx].d or base[idx].q
-            for (const auto& idxSuffix : generateIndexSuffixes(sig.dimensions)) {
-                std::string elemName = baseName + idxSuffix + typeSuffix;
-                graph.signal(elemName);
-            }
-        } else {
-            // Regular signal: create base node + elements
-            graph.signal(sig.name);
-            for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
-                graph.signal(sig.name + suffix);
-            }
-        }
+    // Create aggregate node for dynamic access
+    const auto& aggregate = graph.signal(sig.name);
+
+    // Create individual element nodes
+    for (const auto& idxSuffix : generateIndexSuffixes(sig.dimensions)) {
+        std::string elemName = baseName + idxSuffix + typeSuffix;
+        const auto& individual = graph.signal(elemName);
+        aggregate->in.push_back(individual);
     }
 }
 
