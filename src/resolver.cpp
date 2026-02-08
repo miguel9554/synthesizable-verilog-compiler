@@ -786,15 +786,16 @@ void resolveConditionalStatementInPlace(
 
     // Extract driver nodes from outputs and signals
     // (we need to track what's connected before modifications)
+    // Skip aggregate nodes (in.size() > 1) which represent structural decomposition, not driven signals
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
-            if (!outNode->in.empty()) {
+            if (outNode->in.size() == 1) {
                 drivers[outName] = outNode->in[0];
             }
         }
         for (const auto& [sigName, sigNode] : g.signals) {
-            if (!sigNode->in.empty()) {
+            if (sigNode->in.size() == 1) {
                 drivers[sigName] = sigNode->in[0];
             }
         }
@@ -823,12 +824,13 @@ void resolveConditionalStatementInPlace(
     };
 
     // Helper to get current driver for a signal
+    // Skip aggregate nodes (in.size() > 1) which represent structural decomposition
     auto getCurrentDriver = [&ctx](const std::string& name) -> DFGNode* {
         if (auto it = ctx.graph.outputs.find(name); it != ctx.graph.outputs.end()) {
-            return it->second->in.empty() ? nullptr : it->second->in[0];
+            return it->second->in.size() == 1 ? it->second->in[0] : nullptr;
         }
         if (auto it = ctx.graph.signals.find(name); it != ctx.graph.signals.end()) {
-            return it->second->in.empty() ? nullptr : it->second->in[0];
+            return it->second->in.size() == 1 ? it->second->in[0] : nullptr;
         }
         return nullptr;
     };
@@ -953,15 +955,16 @@ void resolveCaseStatementInPlace(
     auto selectorNode = buildExprDFG(caseStatement->expr, ctx);
 
     // Extract driver nodes from outputs and signals
+    // Skip aggregate nodes (in.size() > 1) which represent structural decomposition, not driven signals
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
-            if (!outNode->in.empty()) {
+            if (outNode->in.size() == 1) {
                 drivers[outName] = outNode->in[0];
             }
         }
         for (const auto& [sigName, sigNode] : g.signals) {
-            if (!sigNode->in.empty()) {
+            if (sigNode->in.size() == 1) {
                 drivers[sigName] = sigNode->in[0];
             }
         }
