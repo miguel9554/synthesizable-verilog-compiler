@@ -31,6 +31,7 @@ struct ResolutionContext {
     const std::set<std::string>& flopNames;
     const ParameterContext& params;
     bool is_sequential;
+    std::vector<asyncTrigger_t> triggers;
     // TODO: Add ResolvedModule reference when needed
 };
 
@@ -59,6 +60,11 @@ void ResolvedType::print(std::ostream& os) const {
     }
 }
 
+// TODO print here clock and reset
+void FlopInfo::print(std::ostream& os) const {
+    type.print(os);
+}
+
 void ResolvedSignal::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
@@ -67,16 +73,11 @@ void ResolvedSignal::print(std::ostream& os) const {
     }
 }
 
-/*
-void ResolvedParam::print(std::ostream& os) const {
-    os << name << ": ";
-    type.print(os);
-    for (const auto& dim : dimensions) {
-        os << "[" << dim.left << ":" << dim.right << "]";
-    }
-    os << " = " << value;
+std::ostream& operator<<(std::ostream& os, const asyncTrigger_t& t) {
+    os << (t.edge == POSEDGE ? "posedge" : "negedge")
+       << ":" << t.name;
+    return os;
 }
-*/
 
 void ResolvedModule::print(int indent) const {
     auto indent_str = [](int n) { return std::string(n * 2, ' '); };
@@ -116,6 +117,21 @@ void ResolvedModule::print(int indent) const {
         std::cout << indent_str(indent + 2);
         flop.print(std::cout);
         std::cout << std::endl;
+
+        std::cout << indent_str(indent + 3) << "Triggers: ";
+
+        auto it = flopsTriggers.find(flop.name);
+        if (it == flopsTriggers.end()) {
+            throw std::runtime_error(std::format("FLOP {} has no triggers.", flop.name));
+        } else {
+            const auto& vec = it->second;
+            for (size_t i = 0; i < vec.size(); ++i) {
+                if (i) std::cout << ", ";
+                std::cout << vec[i];
+            }
+        }
+
+        std::cout << "\n";
     }
 
     std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
@@ -730,6 +746,11 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     } else {
         throw std::runtime_error("Cannot assign to undeclared: " + outputName);
     }
+
+    // If the assign is sequential, set the triggers of the signal
+    if (ctx.is_sequential) {
+        ctx.thisModule->flopsTriggers[baseName] = ctx.triggers;
+    }
 }
 
 // Resolve a continuous assignment in-place on the shared DFG
@@ -1099,19 +1120,20 @@ void resolveCaseStatementInPlace(
 
         DFGNode* result;
         if (defaultValue) {
-            // Has default: use chain of 2:1 MUXes to handle "no match" case
-            // Each MUX: if selector[i] matches, use dataValues[i], else use previous result
-            result = defaultValue;
-            for (size_t i = 0; i < selectors.size(); ++i) {
-                result = ctx.graph.mux(selectors[i], dataValues[i], result);
+            // Compute default selector: none of the normal cases matched
+            DFGNode* selectorSum = selectors[0];
+            for (size_t i = 1; i < selectors.size(); ++i) {
+                selectorSum = ctx.graph.add(selectorSum, selectors[i]);
             }
+            DFGNode* defaultSel = ctx.graph.eq(selectorSum, ctx.graph.constant(0));
+            selectors.push_back(defaultSel);
+            dataValues.push_back(defaultValue);
+        }
+
+        if (selectors.size() == 1) {
+            result = dataValues[0];
         } else {
-            // No default: use MUX_N directly (assumes cases are exhaustive/one-hot)
-            if (selectors.size() == 1) {
-                result = dataValues[0];
-            } else {
-                result = ctx.graph.muxN(selectors, dataValues);
-            }
+            result = ctx.graph.muxN(selectors, dataValues);
         }
 
         connectSignalOrOutput(signalName, result);
@@ -1173,15 +1195,6 @@ void resolveProceduralComboInPlace(
     ctx.is_sequential = false;
     resolveStatementInPlace(statement, ctx);
 }
-
-typedef enum {
-    POSEDGE, NEGEDGE
-} edge_t;
-
-typedef struct {
-    edge_t edge;
-    std::string name;
-} asyncTrigger_t;
 
 std::vector<asyncTrigger_t> extractSignalEventExpression(
         const SignalEventExpressionSyntax& sigEventExpr,
@@ -1259,6 +1272,7 @@ void resolveProceduralTimingInPlace(
                 "Not supported timing control: " + std::string(toString(timingControl->kind)));
 
     }
+    ctx.triggers = triggers;
     resolveStatementInPlace(statement, ctx);
 }
 
@@ -1373,6 +1387,89 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 }
 
+// TODO flop trigger resolving - will do later.
+/*
+void extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::string flop_name){
+        const std::string& dName = flop_name + ".d";
+        const auto& dNode = graph.signals[dName];
+        const auto& dNodeDriver = dNode->in[0];
+        const auto& triggers = resolved.flopsTriggers[flop_name];
+        if (dNode->in.size() != 1) {
+            throw std::runtime_error(std::format(
+                        "Flop must have single driver: {} has {}", dName, dNode->in.size()));
+        }
+        DFGNode* functionalLogic;
+        asyncTrigger_t clock;
+        asyncTrigger_t reset;
+        bool has_reset;
+        int reset_value;
+        if (triggers.size() == 1){
+            // Only clock, no reset
+            clock = triggers[0];
+            functionalLogic = dNodeDriver;
+            has_reset = false;
+        } else if (triggers.size() == 2){
+            // First op SHOULD be mux for reset
+            if (dNodeDriver->op != DFGOp::MUX){
+                throw std::runtime_error("Reset MUX not present.");
+            }
+            const auto& mux_sel = dNodeDriver->in[0];
+            const auto& mux_true = dNodeDriver->in[1]; // false branch
+            const auto& mux_else = dNodeDriver->in[2]; // false branch
+            bool is_negated = false;
+            DFGNode* expectedResetNode;
+            if (mux_sel->op == DFGOp::BITWISE_NOT ||
+                    mux_sel->op ==DFGOp::LOGICAL_NOT){
+                is_negated = true;
+                expectedResetNode = mux_sel->in[0];
+            } else{
+                expectedResetNode = mux_sel;
+            }
+            if (expectedResetNode->op != DFGOp::INPUT){
+                throw std::runtime_error("Reset MUX NOT driven by input.");
+            }
+            const std::string& reset_name = std::get<std::string>(expectedResetNode->data);
+            if (triggers[0].name == reset_name) {
+                reset = triggers[0];
+                clock = triggers[1];
+            } else if (triggers[1].name == reset_name){
+                reset = triggers[1];
+                clock = triggers[0];
+            } else {
+                throw std::runtime_error("Reset not present in sensitivity list.");
+            }
+
+            // Check that the reset polarity is correct
+            if (reset.edge == edge_t::NEGEDGE){
+                if (is_negated == false){
+                    throw std::runtime_error("NEGEDGE reset should have NEG polarity.");
+                }
+            }
+
+            if (reset.edge == edge_t::POSEDGE){
+                if (is_negated == true){
+                    throw std::runtime_error("POSEDGE reset should have PLUS polarity.");
+                }
+            }
+
+            has_reset = true;
+
+            // Assign clocked logic
+            functionalLogic = mux_else;
+
+            // TODO recover (and check) reset value
+            reset_value = 0;
+        }
+        // Check that functionalLogic has NO interaction with clock or reset
+        // Meaning, they are not present in any node operation
+        flop.clock = clock;
+        if (has_reset) {
+            flop.reset = reset;
+            flop.reset_value = reset_value;
+        }
+}
+*/
+
 } // anonymous namespace
 
 ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx) {
@@ -1408,7 +1505,15 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     // Resolve flops and build flopNames set
     std::set<std::string> flopNames;
     for (const auto& flop : unresolved.flops) {
-        resolved.flops.push_back(resolveSignal(flop, *mergedCtx));
+        const auto& resolvedSignal = (resolveSignal(flop, *mergedCtx));
+        resolved.flops.push_back(FlopInfo{
+                .name = resolvedSignal.name,
+                .type = resolvedSignal,
+                .flop_type = FLOP_D,
+                .clock = {},
+                .reset = std::nullopt,
+                .reset_value = std::nullopt,
+                });
         flopNames.insert(flop.name);
     }
 
@@ -1438,7 +1543,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // === Resolve all blocks into the shared graph ===
     // Create resolution context
-    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, false};
+    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, false, {}};
 
     for (const auto& block : unresolved.proceduralComboBlocks) {
         resolveProceduralComboInPlace(block, resCtx);
@@ -1475,6 +1580,13 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
             }
         }
     }
+
+    // TODO flop trigger resolving - will do later.
+    /*
+    // Check flops is correct and assign them
+    for (auto& flop: resolved.flops) {
+    }
+    */
 
     return resolved;
 }

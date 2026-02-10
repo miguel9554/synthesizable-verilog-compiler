@@ -12,6 +12,20 @@
 namespace custom_hdl {
 
 // ============================================================================
+// Util types for triggers
+// ============================================================================
+
+typedef enum {
+    POSEDGE, NEGEDGE
+} edge_t;
+
+typedef struct {
+    edge_t edge;
+    std::string name;
+} asyncTrigger_t;
+
+
+// ============================================================================
 // Resolved types (output of pass 2)
 // ============================================================================
 
@@ -57,6 +71,21 @@ struct ResolvedSignal {
     void print(std::ostream& os) const;
 };
 
+typedef enum {
+    FLOP_D
+} flopType_t;
+
+struct FlopInfo {
+    std::string name;
+    ResolvedSignal type;
+    flopType_t flop_type;
+    std::vector<asyncTrigger_t> clock;
+    std::optional<asyncTrigger_t> reset;
+    std::optional<int> reset_value;
+
+    void print(std::ostream& os) const;
+};
+
 // Parameter extends signal with a resolved value
 using ResolvedParam = ResolvedSignal;
 
@@ -82,13 +111,15 @@ struct ResolvedModule {
     std::vector<ResolvedTypes::Signal> inputs;
     std::vector<ResolvedTypes::Signal> outputs;
     std::vector<ResolvedTypes::Signal> signals;
-    std::vector<ResolvedTypes::Signal> flops;
+    std::vector<FlopInfo> flops;
 
     // TODO a list of instantiated modules.
     std::vector<ResolvedTypes::Hierarchy> hierarchyInstantiation;
 
     // Single DFG containing all resolved logic
     std::unique_ptr<DFG> dfg;
+
+    std::map<std::string, std::vector<asyncTrigger_t>> flopsTriggers;
 
     void print(int indent = 0) const;
 };
