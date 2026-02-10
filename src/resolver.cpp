@@ -1428,7 +1428,7 @@ FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const st
             if (expectedResetNode->op != DFGOp::INPUT){
                 throw std::runtime_error("Reset MUX NOT driven by input.");
             }
-            const std::string& reset_name = std::get<std::string>(expectedResetNode->data);
+            const std::string& reset_name = expectedResetNode->name;
             if (triggers[0].name == reset_name) {
                 reset = triggers[0];
                 clock = triggers[1];

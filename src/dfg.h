@@ -51,19 +51,20 @@ struct DFGNode {
     DFGOp op;
     std::vector<DFGNode*> in;  // fan-in (operands)
 
+    std::string name;  // Optional name (empty = anonymous)
+
     // Metadata depending on op type:
-    // - monostate: no extra data (ADD, SUB, MUL, DIV, MUX)
+    // - monostate: no extra data
     // - int64_t: constant value (CONST)
-    // - string: signal name (INPUT, OUTPUT)
     std::variant<
         std::monostate,
-        int64_t,
-        std::string
+        int64_t
     > data;
 
     DFGNode(DFGOp o) : op(o) {}
-    DFGNode(DFGOp o, std::string name) : op(o), data(std::move(name)) {}
+    DFGNode(DFGOp o, std::string name) : op(o), name(std::move(name)) {}
     DFGNode(DFGOp o, int64_t val) : op(o), data(val) {}
+    DFGNode(DFGOp o, std::string name, int64_t val) : op(o), name(std::move(name)), data(val) {}
 };
 
 struct DFG {
@@ -396,13 +397,13 @@ struct DFG {
 
             switch (node->op) {
                 case DFGOp::INPUT:
-                    ss << "INPUT\\n" << std::get<std::string>(node->data);
+                    ss << "INPUT\\n" << node->name;
                     break;
                 case DFGOp::OUTPUT:
-                    ss << "OUTPUT\\n" << std::get<std::string>(node->data);
+                    ss << "OUTPUT\\n" << node->name;
                     break;
                 case DFGOp::SIGNAL:
-                    ss << "SIGNAL\\n" << std::get<std::string>(node->data);
+                    ss << "SIGNAL\\n" << node->name;
                     break;
                 case DFGOp::CONST:
                     ss << "CONST\\n" << std::get<int64_t>(node->data);
@@ -495,11 +496,13 @@ struct DFG {
             }
             ss << "\",\n";
 
+            // Add name if present
+            if (!node->name.empty()) {
+                ss << indentStr(indent + 3) << "\"name\": \"" << node->name << "\",\n";
+            }
             // Add data field based on variant type
             if (std::holds_alternative<int64_t>(node->data)) {
                 ss << indentStr(indent + 3) << "\"value\": " << std::get<int64_t>(node->data) << ",\n";
-            } else if (std::holds_alternative<std::string>(node->data)) {
-                ss << indentStr(indent + 3) << "\"name\": \"" << std::get<std::string>(node->data) << "\",\n";
             }
 
             // Add inputs
