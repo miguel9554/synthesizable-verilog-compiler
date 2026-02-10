@@ -1389,6 +1389,72 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 }
 
+bool extract_reset(
+    const DFGNode* dNodeDriver,
+    const std::vector<asyncTrigger_t> triggers,
+    asyncTrigger_t& reset,
+    asyncTrigger_t& clock,
+    int& reset_value,
+    DFGNode*& functionalLogic
+){
+
+    bool has_reset;
+
+    if (dNodeDriver->op != DFGOp::MUX){
+        throw std::runtime_error("Reset MUX not present.");
+    }
+    const auto& mux_sel = dNodeDriver->in[0];
+    const auto& mux_true = dNodeDriver->in[1]; // TRUE branch
+    const auto& mux_else = dNodeDriver->in[2]; // false branch
+    bool is_negated = false;
+    DFGNode* expectedResetNode;
+    if (mux_sel->op == DFGOp::BITWISE_NOT ||
+            mux_sel->op ==DFGOp::LOGICAL_NOT){
+        is_negated = true;
+        expectedResetNode = mux_sel->in[0];
+    } else{
+        expectedResetNode = mux_sel;
+    }
+    if (expectedResetNode->op != DFGOp::INPUT){
+        throw std::runtime_error("Reset MUX NOT driven by input.");
+    }
+    const std::string& reset_name = expectedResetNode->name;
+    if (triggers[0].name == reset_name) {
+        reset = triggers[0];
+        clock = triggers[1];
+    } else if (triggers[1].name == reset_name){
+        reset = triggers[1];
+        clock = triggers[0];
+    } else {
+        throw std::runtime_error("Reset not present in sensitivity list.");
+    }
+
+    // Check that the reset polarity is correct
+    if (reset.edge == edge_t::NEGEDGE && is_negated == false){
+        throw std::runtime_error("NEGEDGE reset should have NEG polarity.");
+    }
+
+    if (reset.edge == edge_t::POSEDGE && is_negated == true){
+        throw std::runtime_error("POSEDGE reset should have PLUS polarity.");
+    }
+
+    has_reset = true;
+
+    // Assign clocked logic
+    functionalLogic = mux_else;
+
+    // TODO recover (and check) reset value
+    // should evaluate constant mux_true
+    if (mux_true->op == DFGOp::CONST){
+        reset_value = std::get<int64_t>(mux_true->data);
+    } else{
+        throw std::runtime_error(std::format(
+                    "Only support CONST for reset val, current: {}.", mux_true->str()));
+    }
+
+    return has_reset;
+}
+
 FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::string flop_name, const FlopInfo flopIn, DFGNode*& functionalLogic){
         auto flop = flopIn;
         const std::string& dName = flop_name + ".d";
@@ -1409,64 +1475,16 @@ FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const st
             functionalLogic = dNodeDriver;
             has_reset = false;
         } else if (triggers.size() == 2){
-            // First op SHOULD be mux for reset
-            if (dNodeDriver->op != DFGOp::MUX){
-                throw std::runtime_error("Reset MUX not present.");
-            }
-            const auto& mux_sel = dNodeDriver->in[0];
-            const auto& mux_true = dNodeDriver->in[1]; // TRUE branch
-            const auto& mux_else = dNodeDriver->in[2]; // false branch
-            bool is_negated = false;
-            DFGNode* expectedResetNode;
-            if (mux_sel->op == DFGOp::BITWISE_NOT ||
-                    mux_sel->op ==DFGOp::LOGICAL_NOT){
-                is_negated = true;
-                expectedResetNode = mux_sel->in[0];
-            } else{
-                expectedResetNode = mux_sel;
-            }
-            if (expectedResetNode->op != DFGOp::INPUT){
-                throw std::runtime_error("Reset MUX NOT driven by input.");
-            }
-            const std::string& reset_name = expectedResetNode->name;
-            if (triggers[0].name == reset_name) {
-                reset = triggers[0];
-                clock = triggers[1];
-            } else if (triggers[1].name == reset_name){
-                reset = triggers[1];
-                clock = triggers[0];
-            } else {
-                throw std::runtime_error("Reset not present in sensitivity list.");
-            }
+            // First op COULD be mux for reset
+            // A procedural block can have some signals reseted and others not.
+            has_reset = extract_reset(
+                    dNodeDriver,
+                    triggers,
+                    reset,
+                    clock,
+                    reset_value,
+                    functionalLogic);
 
-            // Check that the reset polarity is correct
-            if (reset.edge == edge_t::NEGEDGE){
-                if (is_negated == false){
-                    throw std::runtime_error("NEGEDGE reset should have NEG polarity.");
-                }
-            }
-
-            if (reset.edge == edge_t::POSEDGE){
-                if (is_negated == true){
-                    throw std::runtime_error("POSEDGE reset should have PLUS polarity.");
-                }
-            }
-
-            has_reset = true;
-
-            // Assign clocked logic
-            functionalLogic = mux_else;
-
-            // TODO recover (and check) reset value
-            // should evaluate constant mux_true
-            /*
-            if (mux_true->op != DFGOp::CONST){
-                throw std::runtime_error("Only support CONST for reset val.");
-            }
-            reset_value = std::get<int64_t>(mux_true->data);
-            */
-            // TODO fix this garbage.
-            reset_value = 0;
         } else {
             throw std::runtime_error(std::format("Trigger size not supported: {}", triggers.size()));
         }
@@ -1554,7 +1572,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // Pre-populate module PARAMETERS (ports only)
     for (const auto& parameter : resolved.parameters) {
-        prePopulateInput(graph, parameter);
+        graph.named_constant(parameter.value, parameter.name);
     }
 
     // Pre-populate module INPUTS (ports only)
@@ -1618,7 +1636,8 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         for (const auto& name: allElements(flop.type)){
             DFGNode* functional_logic;
             resolved_flops.push_back(extractFlopClockAndreset(graph, resolved, name, flop, functional_logic));
-            // graph.outputs[name]
+            auto& output = graph.signals.at(name + ".d");
+            output->in = {functional_logic};
         }
     }
     resolved.flops = resolved_flops;

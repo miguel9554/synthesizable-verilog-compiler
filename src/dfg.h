@@ -47,6 +47,51 @@ enum class DFGOp {
     REDUCTION_XNOR,
 };
 
+inline const char* to_string(DFGOp op) {
+    switch (op) {
+        case DFGOp::INPUT: return "INPUT";
+        case DFGOp::OUTPUT: return "OUTPUT";
+        case DFGOp::SIGNAL: return "SIGNAL";
+        case DFGOp::CONST: return "CONST";
+        case DFGOp::INDEX: return "INDEX";
+        case DFGOp::ADD: return "ADD";
+        case DFGOp::SUB: return "SUB";
+        case DFGOp::MUL: return "MUL";
+        case DFGOp::DIV: return "DIV";
+        case DFGOp::EQ: return "EQ";
+        case DFGOp::LT: return "LT";
+        case DFGOp::LE: return "LE";
+        case DFGOp::GT: return "GT";
+        case DFGOp::GE: return "GE";
+        case DFGOp::SHL: return "SHL";
+        case DFGOp::ASR: return "ASR";
+        case DFGOp::MUX: return "MUX";
+        case DFGOp::MUX_N: return "MUX_N";
+        case DFGOp::UNARY_PLUS: return "UNARY_PLUS";
+        case DFGOp::UNARY_NEGATE: return "UNARY_NEGATE";
+        case DFGOp::BITWISE_NOT: return "BITWISE_NOT";
+        case DFGOp::LOGICAL_NOT: return "LOGICAL_NOT";
+        case DFGOp::REDUCTION_AND: return "REDUCTION_AND";
+        case DFGOp::REDUCTION_NAND: return "REDUCTION_NAND";
+        case DFGOp::REDUCTION_OR: return "REDUCTION_OR";
+        case DFGOp::REDUCTION_NOR: return "REDUCTION_NOR";
+        case DFGOp::REDUCTION_XOR: return "REDUCTION_XOR";
+        case DFGOp::REDUCTION_XNOR: return "REDUCTION_XNOR";
+    }
+    return "UNKNOWN";
+}
+
+} // namespace custom_hdl
+
+template<>
+struct std::formatter<custom_hdl::DFGOp> : std::formatter<const char*> {
+    auto format(custom_hdl::DFGOp op, std::format_context& ctx) const {
+        return std::formatter<const char*>::format(custom_hdl::to_string(op), ctx);
+    }
+};
+
+namespace custom_hdl {
+
 struct DFGNode {
     DFGOp op;
     std::vector<DFGNode*> in;  // fan-in (operands)
@@ -65,12 +110,39 @@ struct DFGNode {
     DFGNode(DFGOp o, std::string name) : op(o), name(std::move(name)) {}
     DFGNode(DFGOp o, int64_t val) : op(o), data(val) {}
     DFGNode(DFGOp o, std::string name, int64_t val) : op(o), name(std::move(name)), data(val) {}
+
+    std::string str() const {
+        std::string result = to_string(op);
+        if (!name.empty()) result += "(" + name + ")";
+        if (std::holds_alternative<int64_t>(data)) result += "[" + std::to_string(std::get<int64_t>(data)) + "]";
+        return result;
+    }
 };
+
+} // namespace custom_hdl
+
+template<>
+struct std::formatter<custom_hdl::DFGNode> : std::formatter<std::string> {
+    auto format(const custom_hdl::DFGNode& node, std::format_context& ctx) const {
+        return std::formatter<std::string>::format(node.str(), ctx);
+    }
+};
+
+template<>
+struct std::formatter<custom_hdl::DFGNode*> : std::formatter<std::string> {
+    auto format(const custom_hdl::DFGNode* node, std::format_context& ctx) const {
+        if (!node) return std::formatter<std::string>::format("null", ctx);
+        return std::formatter<std::string>::format(node->str(), ctx);
+    }
+};
+
+namespace custom_hdl {
 
 struct DFG {
     std::vector<std::unique_ptr<DFGNode>> nodes;
 
     // Quick access named nodes
+    std::map<std::string, DFGNode*> constants;
     std::map<std::string, DFGNode*> inputs;
     std::map<std::string, DFGNode*> outputs;
     std::map<std::string, DFGNode*> signals;
@@ -84,6 +156,12 @@ struct DFG {
             // Key already exists - insertion failed
             throw std::runtime_error(std::format("Input {} already exists", name));
         }
+        return nodes.back().get();
+    }
+
+    DFGNode* named_constant(int64_t v, const std::string& name) {
+        nodes.push_back(std::make_unique<DFGNode>(DFGOp::CONST, name, v));
+        constants[name] = nodes.back().get();
         return nodes.back().get();
     }
 
@@ -120,6 +198,7 @@ struct DFG {
     DFGNode* lookupSignal(const std::string& name) const {
         if (auto it = inputs.find(name); it != inputs.end()) return it->second;
         if (auto it = signals.find(name); it != signals.end()) return it->second;
+        if (auto it = constants.find(name); it != constants.end()) return it->second;
         if (auto it = outputs.find(name); it != outputs.end()) {
             // For outputs, return the driver if connected (reading output value)
             auto* outNode = it->second;
