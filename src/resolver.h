@@ -79,11 +79,11 @@ struct FlopInfo {
     std::string name;
     ResolvedSignal type;
     flopType_t flop_type;
-    std::vector<asyncTrigger_t> clock;
+    asyncTrigger_t clock;
     std::optional<asyncTrigger_t> reset;
     std::optional<int> reset_value;
 
-    void print(std::ostream& os) const;
+    void print(std::ostream& os, int indent = 0) const;
 };
 
 // Parameter extends signal with a resolved value

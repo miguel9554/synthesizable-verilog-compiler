@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -60,9 +61,31 @@ void ResolvedType::print(std::ostream& os) const {
     }
 }
 
-// TODO print here clock and reset
-void FlopInfo::print(std::ostream& os) const {
+std::ostream& operator<<(std::ostream& os, const asyncTrigger_t& t) {
+    os << (t.edge == POSEDGE ? "posedge" : "negedge")
+       << ":" << t.name;
+    return os;
+}
+
+void FlopInfo::print(std::ostream& os, int indent) const {
+    auto indent_str = [](int n) { return std::string(n * 2, ' '); };
+
+    os << indent_str(indent) << "Flop: " << name << std::endl;
+    os << indent_str(indent + 1) << "type: ";
     type.print(os);
+    os << std::endl;
+    os << indent_str(indent + 1) << "flop_type: ";
+    switch (flop_type) {
+        case FLOP_D: os << "FLOP_D"; break;
+    }
+    os << std::endl;
+    os << indent_str(indent + 1) << "clock: " << clock << std::endl;
+    if (reset) {
+        os << indent_str(indent + 1) << "reset: " << *reset << std::endl;
+    }
+    if (reset_value) {
+        os << indent_str(indent + 1) << "reset_value: " << *reset_value << std::endl;
+    }
 }
 
 void ResolvedSignal::print(std::ostream& os) const {
@@ -73,11 +96,7 @@ void ResolvedSignal::print(std::ostream& os) const {
     }
 }
 
-std::ostream& operator<<(std::ostream& os, const asyncTrigger_t& t) {
-    os << (t.edge == POSEDGE ? "posedge" : "negedge")
-       << ":" << t.name;
-    return os;
-}
+
 
 void ResolvedModule::print(int indent) const {
     auto indent_str = [](int n) { return std::string(n * 2, ' '); };
@@ -114,24 +133,7 @@ void ResolvedModule::print(int indent) const {
 
     std::cout << indent_str(indent + 1) << "Flops:" << std::endl;
     for (const auto& flop : this->flops) {
-        std::cout << indent_str(indent + 2);
-        flop.print(std::cout);
-        std::cout << std::endl;
-
-        std::cout << indent_str(indent + 3) << "Triggers: ";
-
-        auto it = flopsTriggers.find(flop.name);
-        if (it == flopsTriggers.end()) {
-            throw std::runtime_error(std::format("FLOP {} has no triggers.", flop.name));
-        } else {
-            const auto& vec = it->second;
-            for (size_t i = 0; i < vec.size(); ++i) {
-                if (i) std::cout << ", ";
-                std::cout << vec[i];
-            }
-        }
-
-        std::cout << "\n";
+        flop.print(std::cout, indent + 2);
     }
 
     std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
@@ -1387,18 +1389,16 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 }
 
-// TODO flop trigger resolving - will do later.
-/*
-void extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::string flop_name){
+FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::string flop_name, const FlopInfo flopIn, DFGNode*& functionalLogic){
+        auto flop = flopIn;
         const std::string& dName = flop_name + ".d";
-        const auto& dNode = graph.signals[dName];
+        const auto& dNode = graph.signals.at(dName);
         const auto& dNodeDriver = dNode->in[0];
-        const auto& triggers = resolved.flopsTriggers[flop_name];
+        const auto& triggers = resolved.flopsTriggers.at(flopIn.name);
         if (dNode->in.size() != 1) {
             throw std::runtime_error(std::format(
                         "Flop must have single driver: {} has {}", dName, dNode->in.size()));
         }
-        DFGNode* functionalLogic;
         asyncTrigger_t clock;
         asyncTrigger_t reset;
         bool has_reset;
@@ -1414,7 +1414,7 @@ void extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::s
                 throw std::runtime_error("Reset MUX not present.");
             }
             const auto& mux_sel = dNodeDriver->in[0];
-            const auto& mux_true = dNodeDriver->in[1]; // false branch
+            const auto& mux_true = dNodeDriver->in[1]; // TRUE branch
             const auto& mux_else = dNodeDriver->in[2]; // false branch
             bool is_negated = false;
             DFGNode* expectedResetNode;
@@ -1458,8 +1458,19 @@ void extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::s
             functionalLogic = mux_else;
 
             // TODO recover (and check) reset value
+            // should evaluate constant mux_true
+            /*
+            if (mux_true->op != DFGOp::CONST){
+                throw std::runtime_error("Only support CONST for reset val.");
+            }
+            reset_value = std::get<int64_t>(mux_true->data);
+            */
+            // TODO fix this garbage.
             reset_value = 0;
+        } else {
+            throw std::runtime_error(std::format("Trigger size not supported: {}", triggers.size()));
         }
+
         // Check that functionalLogic has NO interaction with clock or reset
         // Meaning, they are not present in any node operation
         flop.clock = clock;
@@ -1467,8 +1478,28 @@ void extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const std::s
             flop.reset = reset;
             flop.reset_value = reset_value;
         }
+        flop.name = flop_name;
+        flop.type.name = flop_name;
+        return flop;
 }
-*/
+
+std::vector<std::string> allElements(const ResolvedSignal& signal) {
+    std::vector<std::string> current = {signal.name};
+
+    for (const auto& dimension : signal.dimensions) {
+        std::vector<std::string> next;
+        int start = std::min(dimension.left, dimension.right);
+        int end = std::max(dimension.left, dimension.right);
+        for (const auto& prefix : current) {
+            for (int i = start; i <= end; i++) {
+                next.push_back(prefix + "[" + std::to_string(i) + "]");
+            }
+        }
+        current = std::move(next);
+    }
+
+    return current;
+}
 
 } // anonymous namespace
 
@@ -1581,12 +1612,16 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         }
     }
 
-    // TODO flop trigger resolving - will do later.
-    /*
     // Check flops is correct and assign them
-    for (auto& flop: resolved.flops) {
+    std::vector<FlopInfo> resolved_flops;
+    for (const auto& flop: resolved.flops) {
+        for (const auto& name: allElements(flop.type)){
+            DFGNode* functional_logic;
+            resolved_flops.push_back(extractFlopClockAndreset(graph, resolved, name, flop, functional_logic));
+            // graph.outputs[name]
+        }
     }
-    */
+    resolved.flops = resolved_flops;
 
     return resolved;
 }
