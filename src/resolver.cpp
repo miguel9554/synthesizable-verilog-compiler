@@ -1569,14 +1569,17 @@ std::vector<std::string> allElements(const ResolvedSignal& signal) {
 // Extract ExpressionSyntax from a PropertyExpr
 // Port connection expressions are: PropertyExpr -> SimplePropertyExpr -> SimpleSequenceExpr -> Expression
 const ExpressionSyntax* extractPortExpr(const PropertyExprSyntax& propExpr) {
-    if (propExpr.kind == SyntaxKind::SimplePropertyExpr) {
-        auto& simpleProp = propExpr.as<SimplePropertyExprSyntax>();
-        if (simpleProp.expr->kind == SyntaxKind::SimpleSequenceExpr) {
-            auto& simpleSeq = simpleProp.expr->as<SimpleSequenceExprSyntax>();
-            return simpleSeq.expr;
-        }
+    if (propExpr.kind != SyntaxKind::SimplePropertyExpr) {
+        throw std::runtime_error(
+            "Unsupported port connection expression kind: " + std::string(toString(propExpr.kind)));
     }
-    return nullptr;
+    auto& simpleProp = propExpr.as<SimplePropertyExprSyntax>();
+    if (simpleProp.expr->kind != SyntaxKind::SimpleSequenceExpr) {
+        throw std::runtime_error(
+            "Unsupported port connection expression kind: " + std::string(toString(simpleProp.expr->kind)));
+    }
+    auto& simpleSeq = simpleProp.expr->as<SimpleSequenceExprSyntax>();
+    return simpleSeq.expr;
 }
 
 // Connect an output port of the submodule to a parent signal
@@ -1601,25 +1604,40 @@ void resolveNamedPortConnection(
         const std::set<std::string>& subOutputNames,
         const std::map<std::string, size_t>& subOutputIndex,
         const std::string& instanceName) {
+
+    // Extract port name
     std::string portName(named.name.valueText());
 
+    // Check if input
     if (subInputNames.contains(portName)) {
-        if (named.expr) {
-            auto* expr = extractPortExpr(*named.expr);
-            if (expr) {
-                auto* driver = buildExprDFG(expr, resCtx);
-                moduleNode->in.push_back(driver);
-            }
+        if (!named.expr) {
+            throw std::runtime_error(
+                "Input port '" + portName + "' requires a connection expression");
         }
+        auto* expr = extractPortExpr(*named.expr);
+        if (expr->kind != SyntaxKind::IdentifierName) {
+            throw std::runtime_error(
+                "Only simple identifier expressions supported for input port connections");
+        }
+        const std::string name(expr->as<IdentifierNameSyntax>().identifier.valueText());
+        auto* driver = graph.lookupSignal(name);
+        moduleNode->in.push_back(driver);
     } else if (subOutputNames.contains(portName)) {
-        if (named.expr) {
-            auto* expr = extractPortExpr(*named.expr);
-            if (expr) {
-                std::string parentSignalName(expr->as<IdentifierNameSyntax>().identifier.valueText());
-                connectModuleOutput(graph, moduleNode, resolvedSub, instanceName,
-                                    parentSignalName, subOutputIndex.at(portName));
-            }
+        if (!named.expr) {
+            throw std::runtime_error(
+                "Output port '" + portName + "' requires a connection expression");
         }
+        auto* expr = extractPortExpr(*named.expr);
+        if (expr->kind != SyntaxKind::IdentifierName) {
+            throw std::runtime_error(
+                "Only simple identifier expressions supported for output port connections");
+        }
+        std::string parentSignalName(expr->as<IdentifierNameSyntax>().identifier.valueText());
+        connectModuleOutput(graph, moduleNode, resolvedSub, instanceName,
+                            parentSignalName, subOutputIndex.at(portName));
+    } else {
+        throw std::runtime_error(
+            "Port name '" + portName + "' not found in submodule inputs or outputs");
     }
 }
 

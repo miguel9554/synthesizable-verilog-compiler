@@ -184,6 +184,13 @@ struct UnresolvedModule {
             dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
             std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
         }
+
+        // Serialize hierarchical instantiations to files
+        for (size_t i = 0; i < this->hierarchyInstantiation.size(); ++i) {
+            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_hierarchy_" + std::to_string(i) + ".json";
+            dumpSyntaxNodeToJson(filename, this->hierarchyInstantiation[i]);
+            std::cout << indent_str(indent + 1) << "Wrote hierarchy instantiation " << i << " to: " << filename << std::endl;
+        }
     }
 };
 
