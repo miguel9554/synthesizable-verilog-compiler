@@ -34,6 +34,7 @@ enum class DFGOp {
     ASR,        // Arithmetic shift right (>>>)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
     MUX_N,      // N:1 mux: in[0..N-1]=selectors, in[N..2N-1]=data values (one-hot select)
+    MODULE,     // Submodule instance: name=instance_name, data=module_type_name, in=input_port_drivers
     // Unary ops (single input)
     UNARY_PLUS,
     UNARY_NEGATE,
@@ -67,6 +68,7 @@ inline const char* to_string(DFGOp op) {
         case DFGOp::ASR: return "ASR";
         case DFGOp::MUX: return "MUX";
         case DFGOp::MUX_N: return "MUX_N";
+        case DFGOp::MODULE: return "MODULE";
         case DFGOp::UNARY_PLUS: return "UNARY_PLUS";
         case DFGOp::UNARY_NEGATE: return "UNARY_NEGATE";
         case DFGOp::BITWISE_NOT: return "BITWISE_NOT";
@@ -103,18 +105,21 @@ struct DFGNode {
     // - int64_t: constant value (CONST)
     std::variant<
         std::monostate,
-        int64_t
+        int64_t,
+        std::string
     > data;
 
     DFGNode(DFGOp o) : op(o) {}
     DFGNode(DFGOp o, std::string name) : op(o), name(std::move(name)) {}
     DFGNode(DFGOp o, int64_t val) : op(o), data(val) {}
     DFGNode(DFGOp o, std::string name, int64_t val) : op(o), name(std::move(name)), data(val) {}
+    DFGNode(DFGOp o, std::string name, std::string str_data) : op(o), name(std::move(name)), data(std::move(str_data)) {}
 
     std::string str() const {
         std::string result = to_string(op);
         if (!name.empty()) result += "(" + name + ")";
         if (std::holds_alternative<int64_t>(data)) result += "[" + std::to_string(std::get<int64_t>(data)) + "]";
+        if (std::holds_alternative<std::string>(data)) result += "{" + std::get<std::string>(data) + "}";
         return result;
     }
 };
@@ -404,6 +409,15 @@ struct DFG {
         return nodes.back().get();
     }
 
+    // Create a MODULE instance node
+    // moduleName = the type of module being instantiated
+    // instanceName = the name of this instance
+    // in = drivers for each input port (added after creation)
+    DFGNode* module(const std::string& moduleName, const std::string& instanceName) {
+        nodes.push_back(std::make_unique<DFGNode>(DFGOp::MODULE, instanceName, moduleName));
+        return nodes.back().get();
+    }
+
     // Helper for unary operations (single input)
     DFGNode* unaryOp(DFGOp op, DFGNode* a, const std::string& name = "") {
         auto n = name.empty()
@@ -500,6 +514,11 @@ struct DFG {
                 case DFGOp::ASR: ss << ">>>"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
+                case DFGOp::MODULE:
+                    ss << "MODULE\\n" << node->name;
+                    if (std::holds_alternative<std::string>(node->data))
+                        ss << "\\n(" << std::get<std::string>(node->data) << ")";
+                    break;
                 case DFGOp::INDEX: ss << "INDEX"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
                 case DFGOp::UNARY_NEGATE: ss << "-"; break;
@@ -561,6 +580,7 @@ struct DFG {
                 case DFGOp::ASR: ss << "ASR"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
+                case DFGOp::MODULE: ss << "MODULE"; break;
                 case DFGOp::INDEX: ss << "INDEX"; break;
                 case DFGOp::UNARY_PLUS: ss << "UNARY_PLUS"; break;
                 case DFGOp::UNARY_NEGATE: ss << "UNARY_NEGATE"; break;
@@ -582,6 +602,9 @@ struct DFG {
             // Add data field based on variant type
             if (std::holds_alternative<int64_t>(node->data)) {
                 ss << indentStr(indent + 3) << "\"value\": " << std::get<int64_t>(node->data) << ",\n";
+            }
+            if (std::holds_alternative<std::string>(node->data)) {
+                ss << indentStr(indent + 3) << "\"module_type\": \"" << std::get<std::string>(node->data) << "\",\n";
             }
 
             // Add inputs
