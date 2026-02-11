@@ -99,6 +99,7 @@ struct UnresolvedTypes {
 struct UnresolvedModule {
     std::string name;
     std::vector<UnresolvedTypes::Param> parameters;
+    std::vector<UnresolvedTypes::Param> localparams;
     std::vector<UnresolvedTypes::Signal> inputs;
     std::vector<UnresolvedTypes::Signal> outputs;
     std::vector<UnresolvedTypes::Signal> signals;
@@ -129,6 +130,13 @@ struct UnresolvedModule {
 
         std::cout << indent_str(indent + 1) << "Parameters:" << std::endl;
         for (const auto& param : this->parameters) {
+            std::cout << indent_str(indent + 2);
+            param.print(std::cout);
+            std::cout << std::endl;
+        }
+
+        std::cout << indent_str(indent + 1) << "Localparams:" << std::endl;
+        for (const auto& param : this->localparams) {
             std::cout << indent_str(indent + 2);
             param.print(std::cout);
             std::cout << std::endl;

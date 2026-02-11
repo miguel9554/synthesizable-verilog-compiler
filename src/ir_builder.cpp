@@ -198,9 +198,8 @@ public:
                   std::back_inserter(currentModule->signals));
     }
 
-    // TODO we should store localparams in a different array...
     void handle(const ParameterDeclarationStatementSyntax& node) {
-        currentModule->parameters = extractParameter(node.parameter, currentModule->parameters);
+        currentModule->localparams = extractParameter(node.parameter, currentModule->localparams);
     }
 
     void handle(const DataDeclarationSyntax& node) {

@@ -108,6 +108,7 @@ struct ResolvedTypes {
 struct ResolvedModule {
     std::string name;
     std::vector<ResolvedTypes::Param> parameters;
+    std::vector<ResolvedTypes::Param> localparams;
     std::vector<ResolvedTypes::Signal> inputs;
     std::vector<ResolvedTypes::Signal> outputs;
     std::vector<ResolvedTypes::Signal> signals;

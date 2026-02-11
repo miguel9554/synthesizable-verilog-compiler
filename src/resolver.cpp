@@ -300,7 +300,7 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
 
 // Resolve an UnresolvedParam to ResolvedParam
 // TODO: Actually evaluate the type syntax and dimension expressions
-ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& topCtx, ParameterContext& localCtx) {
+ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterContext& topCtx, ParameterContext& localCtx, bool isLocal = false) {
     ResolvedParam resolved;
     resolved.name = param.name;
 
@@ -314,6 +314,21 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
     // TODO only support for scalar params
     if (param.dimensions.syntax) {
         throw std::runtime_error("Param with dimensions not supported.");
+    }
+
+    // Localparams cannot be overridden by instantiation context
+    if (isLocal) {
+        if (!param.defaultValue) {
+            throw std::runtime_error(
+                "Localparam '" + param.name + "' must have a default value");
+        }
+        ParameterContext mergedCtx = topCtx;
+        for (const auto& [k, v] : localCtx.values) {
+            mergedCtx.values[k] = v;
+        }
+        resolved.value = evaluateConstantExpr(param.defaultValue, mergedCtx);
+        localCtx.values[param.name] = resolved.value;
+        return resolved;
     }
 
     // First check if param value is provided in context (override)
@@ -1565,6 +1580,11 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         resolved.parameters.push_back(resolveParameter(param, topCtx, *localCtx));
     }
 
+    // Resolve localparams (cannot be overridden by instantiation context)
+    for (const auto& param : unresolved.localparams) {
+        resolved.localparams.push_back(resolveParameter(param, topCtx, *localCtx, true));
+    }
+
     auto mergedCtx = std::make_unique<ParameterContext>(topCtx);
     for (const auto& [k, v] : (*localCtx).values) {
         (*mergedCtx).values[k] = v;
@@ -1604,8 +1624,13 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     resolved.dfg = std::make_unique<DFG>();
     DFG& graph = *resolved.dfg;
 
-    // Pre-populate module PARAMETERS (ports only)
+    // Pre-populate module PARAMETERS
     for (const auto& parameter : resolved.parameters) {
+        graph.named_constant(parameter.value, parameter.name);
+    }
+
+    // Pre-populate module LOCALPARAMS
+    for (const auto& parameter : resolved.localparams) {
         graph.named_constant(parameter.value, parameter.name);
     }
 
