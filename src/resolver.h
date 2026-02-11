@@ -3,6 +3,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -113,7 +114,7 @@ struct ResolvedModule {
     std::vector<FlopInfo> flops;
 
     // TODO a list of instantiated modules.
-    std::vector<ResolvedTypes::Hierarchy> hierarchyInstantiation;
+    std::vector<ResolvedModule> hierarchyInstantiation;
 
     // Single DFG containing all resolved logic
     std::unique_ptr<DFG> dfg;
@@ -136,9 +137,12 @@ struct ParameterContext {
 // Resolution functions (pass 2)
 // ============================================================================
 
-// Resolve a single module given parameter values
-// Returns nullptr if resolution fails
-ResolvedModule resolveModule(const UnresolvedModule& module, const ParameterContext& ctx);
+// Module lookup table: maps module name -> unresolved module
+using ModuleLookup = std::unordered_map<std::string, const UnresolvedModule*>;
+
+// Resolve a single module given parameter values and a lookup table for submodules
+ResolvedModule resolveModule(const UnresolvedModule& module, const ParameterContext& ctx,
+                             const ModuleLookup& moduleLookup);
 
 // Resolve all modules (using default parameter values)
 std::vector<ResolvedModule> resolveModules(

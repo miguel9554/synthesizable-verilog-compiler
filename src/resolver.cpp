@@ -136,7 +136,14 @@ void ResolvedModule::print(int indent) const {
         flop.print(std::cout, indent + 2);
     }
 
-    std::cout << indent_str(indent + 1) << "No of hier. inst.: " << this->hierarchyInstantiation.size() << std::endl;
+    std::cout << indent_str(indent + 1) << "Submodules:" << std::endl;
+    for (const auto& sub : this->hierarchyInstantiation) {
+        std::cout << indent_str(indent + 2) << sub.name;
+        for (const auto& p : sub.parameters) {
+            std::cout << " " << p.name << "=" << p.value;
+        }
+        std::cout << std::endl;
+    }
 
     // Write DFG to files
     if (this->dfg) {
@@ -1389,6 +1396,32 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 }
 
+ParameterContext parseParameterValueAssignment(
+        const ParameterValueAssignmentSyntax& paramAssign,
+        const ParameterContext& evalCtx) {
+    ParameterContext result;
+    for (const auto* param : paramAssign.parameters) {
+        if (param->kind == SyntaxKind::OrderedParamAssignment) {
+            throw std::runtime_error(
+                "Ordered parameter assignments not yet supported in instantiation");
+        } else if (param->kind == SyntaxKind::NamedParamAssignment) {
+            const auto& named = param->as<NamedParamAssignmentSyntax>();
+            std::string paramName(named.name.valueText());
+            if (!named.expr) {
+                throw std::runtime_error(
+                    "Named parameter '" + paramName + "' has no value");
+            }
+            int64_t value = evaluateConstantExpr(named.expr, evalCtx);
+            result.values[paramName] = static_cast<int>(value);
+        } else {
+            throw std::runtime_error(
+                "Unsupported parameter assignment kind: " +
+                std::string(toString(param->kind)));
+        }
+    }
+    return result;
+}
+
 bool extract_reset(
     const DFGNode* dNodeDriver,
     const std::vector<asyncTrigger_t> triggers,
@@ -1521,7 +1554,8 @@ std::vector<std::string> allElements(const ResolvedSignal& signal) {
 
 } // anonymous namespace
 
-ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx) {
+ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx,
+                             const ModuleLookup& moduleLookup) {
     ResolvedModule resolved;
     resolved.name = unresolved.name;
     auto localCtx = std::make_unique<ParameterContext>(topCtx);
@@ -1642,17 +1676,44 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
     }
     resolved.flops = resolved_flops;
 
+    // Resolve submodules
+    // NOTE: The submodule is looked up by name from the same set of parsed modules.
+    // This means the submodule's syntax is extracted twice: once in ir_builder (pass 1)
+    // and looked up again here by name. This duplication is tracked in todos.md.
+    for (const auto& moduleInst: unresolved.hierarchyInstantiation){
+        std::string submoduleName(moduleInst->type.valueText());
+        auto it = moduleLookup.find(submoduleName);
+        if (it == moduleLookup.end()) {
+            throw std::runtime_error(
+                "Submodule '" + submoduleName + "' not found in module lookup");
+        }
+
+        ParameterContext instCtx;
+        if (moduleInst->parameters) {
+            instCtx = parseParameterValueAssignment(*moduleInst->parameters, *mergedCtx);
+        }
+
+        resolved.hierarchyInstantiation.push_back(
+            resolveModule(*it->second, instCtx, moduleLookup));
+    }
+
     return resolved;
 }
 
 std::vector<ResolvedModule> resolveModules(
     const std::vector<std::unique_ptr<UnresolvedModule>>& modules) {
 
+    // Build lookup table so resolveModule can find submodules by name
+    ModuleLookup moduleLookup;
+    for (const auto& module : modules) {
+        moduleLookup[module->name] = module.get();
+    }
+
     std::vector<ResolvedModule> resolved;
     ParameterContext emptyCtx;  // Use default/empty context for now
 
     for (const auto& module : modules) {
-        resolved.push_back(resolveModule(*module, emptyCtx));
+        resolved.push_back(resolveModule(*module, emptyCtx, moduleLookup));
     }
 
     return resolved;
