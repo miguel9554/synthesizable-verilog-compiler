@@ -32,6 +32,7 @@ enum class DFGOp {
     GE,         // Greater or equal (>=)
     SHL,        // Arithmetic shift left (<<<)
     ASR,        // Arithmetic shift right (>>>)
+    POWER,      // Exponentiation (**)
     MUX,        // 2:1 mux: in[0]=sel, in[1]=true_val, in[2]=false_val
     MUX_N,      // N:1 mux: in[0..N-1]=selectors, in[N..2N-1]=data values (one-hot select)
     MODULE,     // Submodule instance: name=instance_name, data=module_type_name, in=input_port_drivers
@@ -66,6 +67,7 @@ inline const char* to_string(DFGOp op) {
         case DFGOp::GE: return "GE";
         case DFGOp::SHL: return "SHL";
         case DFGOp::ASR: return "ASR";
+        case DFGOp::POWER: return "POWER";
         case DFGOp::MUX: return "MUX";
         case DFGOp::MUX_N: return "MUX_N";
         case DFGOp::MODULE: return "MODULE";
@@ -396,6 +398,18 @@ struct DFG {
         return nodes.back().get();
     }
 
+    DFGNode* power(DFGNode* a, DFGNode* b, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::POWER)
+            : std::make_unique<DFGNode>(DFGOp::POWER, name);
+        n->in = {a, b};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
     DFGNode* mux(DFGNode* sel, DFGNode* t, DFGNode* f, const std::string& name = "") {
         auto n = name.empty()
             ? std::make_unique<DFGNode>(DFGOp::MUX)
@@ -538,6 +552,7 @@ struct DFG {
                 case DFGOp::GE:  ss << ">="; break;
                 case DFGOp::SHL: ss << "<<<"; break;
                 case DFGOp::ASR: ss << ">>>"; break;
+                case DFGOp::POWER: ss << "**"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
                 case DFGOp::MODULE:
@@ -615,6 +630,7 @@ struct DFG {
                 case DFGOp::GE: ss << "GE"; break;
                 case DFGOp::SHL: ss << "SHL"; break;
                 case DFGOp::ASR: ss << "ASR"; break;
+                case DFGOp::POWER: ss << "POWER"; break;
                 case DFGOp::MUX: ss << "MUX"; break;
                 case DFGOp::MUX_N: ss << "MUX_N"; break;
                 case DFGOp::MODULE: ss << "MODULE"; break;

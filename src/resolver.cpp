@@ -677,6 +677,12 @@ DFGNode* buildExprDFG(
                                  buildExprDFG(binary.right, ctx));
         }
 
+        case SyntaxKind::PowerExpression: {
+            auto& binary = expr->as<BinaryExpressionSyntax>();
+            return ctx.graph.power(buildExprDFG(binary.left, ctx),
+                                   buildExprDFG(binary.right, ctx));
+        }
+
         case SyntaxKind::ConditionalExpression: {
             auto& cond = expr->as<ConditionalExpressionSyntax>();
             if (cond.predicate->conditions.size() != 1) {
@@ -1439,6 +1445,7 @@ ParameterContext parseParameterValueAssignment(
 bool extract_reset(
     const DFGNode* dNodeDriver,
     const std::vector<asyncTrigger_t> triggers,
+    const std::string flop_name,
     asyncTrigger_t& reset,
     asyncTrigger_t& clock,
     int& reset_value,
@@ -1455,6 +1462,9 @@ bool extract_reset(
     auto* mux_else = dNodeDriver->in[2].node; // false branch
     bool is_negated = false;
     DFGNode* expectedResetNode;
+
+    // Check RESET polarity
+    // TODO here the syntax is leaking... the OP should be unified...
     if (mux_sel->op == DFGOp::BITWISE_NOT ||
             mux_sel->op ==DFGOp::LOGICAL_NOT){
         is_negated = true;
@@ -1462,9 +1472,14 @@ bool extract_reset(
     } else{
         expectedResetNode = mux_sel;
     }
+    // Again same as above..
     if (expectedResetNode->op != DFGOp::INPUT){
         throw std::runtime_error("Reset MUX NOT driven by input.");
     }
+
+    // Decode which trigger is reset and which is clock by matching the name
+    // with the expected reset node (the one driving the mux sel, possibly
+    // through a NOT)
     const std::string& reset_name = expectedResetNode->name;
     if (triggers[0].name == reset_name) {
         reset = triggers[0];
@@ -1480,24 +1495,25 @@ bool extract_reset(
     if (reset.edge == edge_t::NEGEDGE && is_negated == false){
         throw std::runtime_error("NEGEDGE reset should have NEG polarity.");
     }
-
     if (reset.edge == edge_t::POSEDGE && is_negated == true){
         throw std::runtime_error("POSEDGE reset should have PLUS polarity.");
     }
 
-    has_reset = true;
-
-    // Assign clocked logic
-    functionalLogic = mux_else;
-
-    // TODO recover (and check) reset value
-    // should evaluate constant mux_true
-    if (mux_true->op == DFGOp::CONST){
+    // Check MUX TRUE path. If .d, NO reset, if CONST, reset, else error.
+    if (mux_true->op == DFGOp::SIGNAL){
+        if (mux_true->name != flop_name + ".q"){
+            throw std::runtime_error("Unsupported SIGNAL for reset MUX TRUE: " + mux_true->name);
+        }
+        has_reset = false;
+    } else if (mux_true->op == DFGOp::CONST){
+        has_reset = true;
         reset_value = std::get<int64_t>(mux_true->data);
     } else{
-        throw std::runtime_error(std::format(
-                    "Only support CONST for reset val, current: {}.", mux_true->str()));
+        throw std::runtime_error("Unsupported MUX TRUE branch for reset: " + mux_true->str());
     }
+
+    // Functional logic is just the ELSE branch
+    functionalLogic = mux_else;
 
     return has_reset;
 }
@@ -1527,6 +1543,7 @@ FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const st
             has_reset = extract_reset(
                     dNodeDriver,
                     triggers,
+                    flopIn.name,
                     reset,
                     clock,
                     reset_value,
