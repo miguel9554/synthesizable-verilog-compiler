@@ -1,0 +1,108 @@
+#pragma once
+
+#include "slang/syntax/AllSyntax.h"
+#include "slang/syntax/SyntaxKind.h"
+
+#include <iosfwd>
+#include <iostream>
+#include <string>
+#include <vector>
+
+namespace custom_hdl {
+
+// ============================================================================
+// Unresolved types - store pointers to slang syntax nodes
+// Resolution happens in pass 2 when parameter values are known
+// ============================================================================
+
+struct UnresolvedType {
+    const slang::syntax::DataTypeSyntax* syntax = nullptr;
+
+    void print(std::ostream& os, bool debug) const;
+};
+
+struct UnresolvedDimension {
+    const slang::syntax::SyntaxList<slang::syntax::VariableDimensionSyntax>* syntax = nullptr;
+};
+
+struct UnresolvedSignal {
+    std::string name;
+    UnresolvedType type;
+    UnresolvedDimension dimensions;  // array dimensions (if any)
+
+    void print(std::ostream& os) const;
+};
+
+// Parameter extends signal with a default value expression
+struct UnresolvedParam {
+    std::string name;
+    UnresolvedType type;
+    UnresolvedDimension dimensions;
+    const slang::syntax::ExpressionSyntax* defaultValue = nullptr;
+
+    void print(std::ostream& os) const;
+};
+
+// ============================================================================
+// Type traits for unresolved types
+// ============================================================================
+
+struct UnresolvedTypes {
+    using Type = UnresolvedType;
+    using Dimension = UnresolvedDimension;
+    using Signal = UnresolvedSignal;
+    using Param = UnresolvedParam;
+    using ProceduralTiming = const slang::syntax::TimingControlStatementSyntax*;
+    using ProceduralCombo = const slang::syntax::StatementSyntax*;
+    using Assign = const slang::syntax::ContinuousAssignSyntax*;
+    using Hierarchy = const slang::syntax::HierarchyInstantiationSyntax*;
+};
+
+// ============================================================================
+// Unresolved Module structure
+// ============================================================================
+
+struct UnresolvedModule {
+    std::string name;
+    std::vector<UnresolvedTypes::Param> parameters;
+    std::vector<UnresolvedTypes::Param> localparams;
+    std::vector<UnresolvedTypes::Signal> inputs;
+    std::vector<UnresolvedTypes::Signal> outputs;
+    std::vector<UnresolvedTypes::Signal> signals;
+    std::vector<UnresolvedTypes::Signal> flops;
+
+    // Procedural timing blocks
+    // Can be combo @(*)
+    // or seq @(posedge/negedge c)
+    // Functions from (inputs, flops outputs) -> outputs
+    // Functions from (inputs, flops) -> flops inputs
+    std::vector<UnresolvedTypes::ProceduralTiming> proceduralTimingBlocks;
+
+    // Procedural combo blocks from always_comb
+    // These have no timing.
+    std::vector<UnresolvedTypes::ProceduralCombo> proceduralComboBlocks;
+
+    // Assignments
+    std::vector<UnresolvedTypes::Assign> assignStatements;
+
+    // TODO a list of instantiated modules.
+    // TODO prob. should be a list of pairs of params and modules
+    std::vector<UnresolvedTypes::Hierarchy> hierarchyInstantiation;
+
+    void print(int indent = 0) const;
+};
+
+    // Synthesizable statements
+    static constexpr slang::syntax::SyntaxKind synthesizableStatements[] = {
+        slang::syntax::SyntaxKind::ConditionalStatement,
+        slang::syntax::SyntaxKind::SequentialBlockStatement,
+        slang::syntax::SyntaxKind::CaseStatement,
+        slang::syntax::SyntaxKind::EmptyStatement,
+        slang::syntax::SyntaxKind::LoopStatement,
+        slang::syntax::SyntaxKind::ForLoopStatement,
+        slang::syntax::SyntaxKind::ForeachLoopStatement,
+        slang::syntax::SyntaxKind::TimingControlStatement,
+        slang::syntax::SyntaxKind::ExpressionStatement,
+    };
+
+} // namespace custom_hdl

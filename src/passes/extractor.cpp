@@ -1,5 +1,5 @@
-#include "ir_builder.h"
-#include "syntax_extract.h"
+#include "passes/extractor.h"
+#include "util/syntax_helpers.h"
 
 #include <algorithm>
 #include <memory>
@@ -11,7 +11,7 @@
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
-#include "types.h"
+#include "ir/unresolved.h"
 
 using namespace slang::syntax;
 using namespace custom_hdl;

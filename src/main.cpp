@@ -2,8 +2,9 @@
 #include <iostream>
 #include <memory>
 
-#include "ir_builder.h"
-#include "resolver.h"
+#include "passes/extractor.h"
+#include "passes/elaboration.h"
+#include "passes/constant_fold.h"
 
 #include "slang/syntax/SyntaxTree.h"
 
@@ -112,6 +113,13 @@ int main(int argc, char** argv) {
         std::cout << "(STUB - returning placeholder values)" << std::endl;
 
         auto resolvedModules = resolveModules(modules);
+
+        // Constant folding and algebraic simplification
+        for (auto& module : resolvedModules) {
+            if (module.dfg) {
+                constantFold(*module.dfg);
+            }
+        }
 
         std::cout << "----------------------------------------" << std::endl;
         std::cout << "\nResolved IR (Pass 2):" << std::endl;

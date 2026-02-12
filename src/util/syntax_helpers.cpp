@@ -1,11 +1,11 @@
-#include "syntax_extract.h"
+#include "util/syntax_helpers.h"
 
 #include <stdexcept>
 #include <vector>
 
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
-#include "types.h"
+#include "ir/unresolved.h"
 
 using namespace slang::syntax;
 using namespace slang::parsing;
