@@ -14,6 +14,10 @@
 #include <vector>
 
 namespace custom_hdl {
+
+inline bool g_dump_unresolved_assign = false;
+inline bool g_dump_unresolved_hierarchy = false;
+
 inline const std::string DEBUG_OUTPUT_DIR = "debug_output";
 
 inline void ensureDebugOutputDir() {
@@ -179,17 +183,21 @@ struct UnresolvedModule {
         ensureDebugOutputDir();
 
         // Serialize assign statements to files
-        for (size_t i = 0; i < this->assignStatements.size(); ++i) {
-            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_assign_" + std::to_string(i) + ".json";
-            dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
-            std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
+        if (g_dump_unresolved_assign) {
+            for (size_t i = 0; i < this->assignStatements.size(); ++i) {
+                std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_assign_" + std::to_string(i) + ".json";
+                dumpSyntaxNodeToJson(filename, this->assignStatements[i]);
+                std::cout << indent_str(indent + 1) << "Wrote assign " << i << " to: " << filename << std::endl;
+            }
         }
 
         // Serialize hierarchical instantiations to files
-        for (size_t i = 0; i < this->hierarchyInstantiation.size(); ++i) {
-            std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_hierarchy_" + std::to_string(i) + ".json";
-            dumpSyntaxNodeToJson(filename, this->hierarchyInstantiation[i]);
-            std::cout << indent_str(indent + 1) << "Wrote hierarchy instantiation " << i << " to: " << filename << std::endl;
+        if (g_dump_unresolved_hierarchy) {
+            for (size_t i = 0; i < this->hierarchyInstantiation.size(); ++i) {
+                std::string filename = DEBUG_OUTPUT_DIR + "/" + this->name + "_unresolved_hierarchy_" + std::to_string(i) + ".json";
+                dumpSyntaxNodeToJson(filename, this->hierarchyInstantiation[i]);
+                std::cout << indent_str(indent + 1) << "Wrote hierarchy instantiation " << i << " to: " << filename << std::endl;
+            }
         }
     }
 };

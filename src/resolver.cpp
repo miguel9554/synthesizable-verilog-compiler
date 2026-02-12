@@ -1691,6 +1691,43 @@ void resolvePortConnection(
     }
 }
 
+void check_functional_logic_no_clock_reset(
+    DFGNode* functional_logic,
+    asyncTrigger_t clock,
+    std::optional<asyncTrigger_t> reset
+){
+    // Traverse the functional logic to ensure clock and reset are not used
+    std::set<DFGNode*> visited;
+    std::vector<DFGNode*> to_visit = {functional_logic};
+
+    while (!to_visit.empty()) {
+        DFGNode* current = to_visit.back();
+        to_visit.pop_back();
+
+        if (visited.contains(current)) {
+            continue;
+        }
+        visited.insert(current);
+
+        // Check if current node is clock or reset input
+        // TODO here we should actually check that NO clock or reset is used
+        // TODO We should also check in the combinational logic
+        if (current->op == DFGOp::INPUT) {
+            if (current->name == clock.name) {
+                throw std::runtime_error("Functional logic uses clock signal: " + clock.name);
+            }
+            if (reset && current->name == reset->name) {
+                throw std::runtime_error("Functional logic uses reset signal: " + reset->name);
+            }
+        }
+
+        // Add input nodes to visit list
+        for (const auto& inp : current->in) {
+            to_visit.push_back(inp.node);
+        }
+    }
+}
+
 } // anonymous namespace
 
 ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx,
@@ -1820,6 +1857,8 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
             DFGNode* functional_logic;
             resolved_flops.push_back(extractFlopClockAndreset(graph, resolved, name, flop, functional_logic));
             auto& output = graph.signals.at(name + ".d");
+            check_functional_logic_no_clock_reset(functional_logic,
+                    resolved_flops.back().clock, resolved_flops.back().reset);
             output->in = {functional_logic};
         }
     }
