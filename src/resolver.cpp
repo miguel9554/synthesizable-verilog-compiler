@@ -835,12 +835,12 @@ void resolveConditionalStatementInPlace(
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
             if (outNode->in.size() == 1) {
-                drivers[outName] = outNode->in[0];
+                drivers[outName] = outNode->in[0].node;
             }
         }
         for (const auto& [sigName, sigNode] : g.signals) {
             if (sigNode->in.size() == 1) {
-                drivers[sigName] = sigNode->in[0];
+                drivers[sigName] = sigNode->in[0].node;
             }
         }
         return drivers;
@@ -871,10 +871,10 @@ void resolveConditionalStatementInPlace(
     // Skip aggregate nodes (in.size() > 1) which represent structural decomposition
     auto getCurrentDriver = [&ctx](const std::string& name) -> DFGNode* {
         if (auto it = ctx.graph.outputs.find(name); it != ctx.graph.outputs.end()) {
-            return it->second->in.size() == 1 ? it->second->in[0] : nullptr;
+            return it->second->in.size() == 1 ? it->second->in[0].node : nullptr;
         }
         if (auto it = ctx.graph.signals.find(name); it != ctx.graph.signals.end()) {
-            return it->second->in.size() == 1 ? it->second->in[0] : nullptr;
+            return it->second->in.size() == 1 ? it->second->in[0].node : nullptr;
         }
         return nullptr;
     };
@@ -1004,12 +1004,12 @@ void resolveCaseStatementInPlace(
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
             if (outNode->in.size() == 1) {
-                drivers[outName] = outNode->in[0];
+                drivers[outName] = outNode->in[0].node;
             }
         }
         for (const auto& [sigName, sigNode] : g.signals) {
             if (sigNode->in.size() == 1) {
-                drivers[sigName] = sigNode->in[0];
+                drivers[sigName] = sigNode->in[0].node;
             }
         }
         return drivers;
@@ -1450,15 +1450,15 @@ bool extract_reset(
     if (dNodeDriver->op != DFGOp::MUX){
         throw std::runtime_error("Reset MUX not present.");
     }
-    const auto& mux_sel = dNodeDriver->in[0];
-    const auto& mux_true = dNodeDriver->in[1]; // TRUE branch
-    const auto& mux_else = dNodeDriver->in[2]; // false branch
+    auto* mux_sel = dNodeDriver->in[0].node;
+    auto* mux_true = dNodeDriver->in[1].node; // TRUE branch
+    auto* mux_else = dNodeDriver->in[2].node; // false branch
     bool is_negated = false;
     DFGNode* expectedResetNode;
     if (mux_sel->op == DFGOp::BITWISE_NOT ||
             mux_sel->op ==DFGOp::LOGICAL_NOT){
         is_negated = true;
-        expectedResetNode = mux_sel->in[0];
+        expectedResetNode = mux_sel->in[0].node;
     } else{
         expectedResetNode = mux_sel;
     }
@@ -1506,7 +1506,7 @@ FlopInfo extractFlopClockAndreset(DFG& graph, ResolvedModule& resolved, const st
         auto flop = flopIn;
         const std::string& dName = flop_name + ".d";
         const auto& dNode = graph.signals.at(dName);
-        const auto& dNodeDriver = dNode->in[0];
+        auto* dNodeDriver = dNode->in[0].node;
         const auto& triggers = resolved.flopsTriggers.at(flopIn.name);
         if (dNode->in.size() != 1) {
             throw std::runtime_error(std::format(
@@ -1584,26 +1584,21 @@ const ExpressionSyntax* extractPortExpr(const PropertyExprSyntax& propExpr) {
 
 // Connect an output port of the submodule to a parent signal
 void connectModuleOutput(DFG& graph, DFGNode* moduleNode,
-                         const ResolvedModule& resolvedSub,
-                         const std::string& instanceName,
                          const std::string& parentSignalName, size_t outputIdx) {
-    auto* portIdx = graph.constant(static_cast<int64_t>(outputIdx));
-    auto* outputVal = graph.index(moduleNode, portIdx, instanceName + "." + resolvedSub.outputs[outputIdx].name);
+    DFGOutput modOut(moduleNode, static_cast<int>(outputIdx));
     if (graph.outputs.contains(parentSignalName)) {
-        graph.connectOutput(parentSignalName, outputVal);
+        graph.connectOutput(parentSignalName, modOut);
     } else if (graph.signals.contains(parentSignalName)) {
-        graph.connectSignal(parentSignalName, outputVal);
+        graph.connectSignal(parentSignalName, modOut);
     }
 }
 
 void resolveNamedPortConnection(
         const NamedPortConnectionSyntax& named,
-        DFG& graph, ResolutionContext& resCtx, DFGNode* moduleNode,
-        const ResolvedModule& resolvedSub,
+        DFG& graph, DFGNode* moduleNode,
         const std::set<std::string>& subInputNames,
         const std::set<std::string>& subOutputNames,
-        const std::map<std::string, size_t>& subOutputIndex,
-        const std::string& instanceName) {
+        const std::map<std::string, size_t>& subOutputIndex) {
 
     // Extract port name
     std::string portName(named.name.valueText());
@@ -1633,7 +1628,7 @@ void resolveNamedPortConnection(
                 "Only simple identifier expressions supported for output port connections");
         }
         std::string parentSignalName(expr->as<IdentifierNameSyntax>().identifier.valueText());
-        connectModuleOutput(graph, moduleNode, resolvedSub, instanceName,
+        connectModuleOutput(graph, moduleNode,
                             parentSignalName, subOutputIndex.at(portName));
     } else {
         throw std::runtime_error(
@@ -1643,8 +1638,7 @@ void resolveNamedPortConnection(
 
 void resolveWildcardPortConnection(
         DFG& graph, DFGNode* moduleNode,
-        const ResolvedModule& resolvedSub,
-        const std::string& instanceName) {
+        const ResolvedModule& resolvedSub) {
     for (const auto& inp : resolvedSub.inputs) {
         auto* driver = graph.lookupSignal(inp.name);
         if (driver) {
@@ -1652,28 +1646,27 @@ void resolveWildcardPortConnection(
         }
     }
     for (size_t oi = 0; oi < resolvedSub.outputs.size(); ++oi) {
-        connectModuleOutput(graph, moduleNode, resolvedSub, instanceName,
+        connectModuleOutput(graph, moduleNode,
                             resolvedSub.outputs[oi].name, oi);
     }
 }
 
 void resolvePortConnection(
         const PortConnectionSyntax* conn,
-        DFG& graph, ResolutionContext& resCtx, DFGNode* moduleNode,
+        DFG& graph, DFGNode* moduleNode,
         const ResolvedModule& resolvedSub,
         const std::set<std::string>& subInputNames,
         const std::set<std::string>& subOutputNames,
-        const std::map<std::string, size_t>& subOutputIndex,
-        const std::string& instanceName) {
+        const std::map<std::string, size_t>& subOutputIndex) {
     switch (conn->kind) {
         case SyntaxKind::NamedPortConnection:
             resolveNamedPortConnection(conn->as<NamedPortConnectionSyntax>(),
-                                       graph, resCtx, moduleNode, resolvedSub,
+                                       graph, moduleNode,
                                        subInputNames, subOutputNames,
-                                       subOutputIndex, instanceName);
+                                       subOutputIndex);
             break;
         case SyntaxKind::WildcardPortConnection:
-            resolveWildcardPortConnection(graph, moduleNode, resolvedSub, instanceName);
+            resolveWildcardPortConnection(graph, moduleNode, resolvedSub);
             break;
         default:
             throw std::runtime_error(
@@ -1848,13 +1841,17 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
                 instanceName = std::string(inst->decl->name.valueText());
             }
 
-            // Create MODULE node in the DFG
-            auto* moduleNode = graph.module(submoduleName, instanceName);
+            // Create MODULE node in the DFG with output port names
+            std::vector<std::string> outputPortNames;
+            for (const auto& out : resolvedSub.outputs) {
+                outputPortNames.push_back(out.name);
+            }
+            auto* moduleNode = graph.module(submoduleName, instanceName, outputPortNames);
 
             for (const auto* conn : inst->connections) {
-                resolvePortConnection(conn, graph, resCtx, moduleNode,
+                resolvePortConnection(conn, graph, moduleNode,
                                       resolvedSub, subInputNames, subOutputNames,
-                                      subOutputIndex, instanceName);
+                                      subOutputIndex);
             }
         }
 

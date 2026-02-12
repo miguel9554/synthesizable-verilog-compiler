@@ -94,9 +94,17 @@ struct std::formatter<custom_hdl::DFGOp> : std::formatter<const char*> {
 
 namespace custom_hdl {
 
+struct DFGNode; // forward declare
+
+struct DFGOutput {
+    DFGNode* node;
+    int port = 0;
+    DFGOutput(DFGNode* n, int p = 0) : node(n), port(p) {}
+};
+
 struct DFGNode {
     DFGOp op;
-    std::vector<DFGNode*> in;  // fan-in (operands)
+    std::vector<DFGOutput> in;  // fan-in (operands)
 
     std::string name;  // Optional name (empty = anonymous)
 
@@ -108,6 +116,22 @@ struct DFGNode {
         int64_t,
         std::string
     > data;
+
+    // Multi-output support: empty = single unnamed output
+    std::vector<std::string> output_names;
+
+    int num_outputs() const {
+        return output_names.empty() ? 1 : static_cast<int>(output_names.size());
+    }
+
+    int output_index(const std::string& oname) const {
+        for (int i = 0; i < static_cast<int>(output_names.size()); i++)
+            if (output_names[i] == oname) return i;
+        return -1;
+    }
+
+    DFGOutput output(int port = 0) { return {this, port}; }
+    DFGOutput output(const std::string& oname) { return {this, output_index(oname)}; }
 
     DFGNode(DFGOp o) : op(o) {}
     DFGNode(DFGOp o, std::string name) : op(o), name(std::move(name)) {}
@@ -207,13 +231,13 @@ struct DFG {
         if (auto it = outputs.find(name); it != outputs.end()) {
             // For outputs, return the driver if connected (reading output value)
             auto* outNode = it->second;
-            return outNode->in.empty() ? outNode : outNode->in[0];
+            return outNode->in.empty() ? outNode : outNode->in[0].node;
         }
         return nullptr;
     }
 
     // Connect a driver to an existing output node
-    void connectOutput(const std::string& name, DFGNode* driver) {
+    void connectOutput(const std::string& name, DFGOutput driver) {
         auto it = outputs.find(name);
         if (it == outputs.end()) {
             throw std::runtime_error(std::format("Output {} not found", name));
@@ -222,7 +246,7 @@ struct DFG {
     }
 
     // Connect a driver to an existing signal node
-    void connectSignal(const std::string& name, DFGNode* driver) {
+    void connectSignal(const std::string& name, DFGOutput driver) {
         auto it = signals.find(name);
         if (it == signals.end()) {
             throw std::runtime_error(std::format("Signal {} not found", name));
@@ -413,8 +437,10 @@ struct DFG {
     // moduleName = the type of module being instantiated
     // instanceName = the name of this instance
     // in = drivers for each input port (added after creation)
-    DFGNode* module(const std::string& moduleName, const std::string& instanceName) {
+    DFGNode* module(const std::string& moduleName, const std::string& instanceName,
+                    const std::vector<std::string>& outputPortNames = {}) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::MODULE, instanceName, moduleName));
+        nodes.back()->output_names = outputPortNames;
         return nodes.back().get();
     }
 
@@ -518,6 +544,13 @@ struct DFG {
                     ss << "MODULE\\n" << node->name;
                     if (std::holds_alternative<std::string>(node->data))
                         ss << "\\n(" << std::get<std::string>(node->data) << ")";
+                    if (!node->output_names.empty()) {
+                        ss << "\\nouts: ";
+                        for (size_t oi = 0; oi < node->output_names.size(); ++oi) {
+                            if (oi > 0) ss << ", ";
+                            ss << node->output_names[oi];
+                        }
+                    }
                     break;
                 case DFGOp::INDEX: ss << "INDEX"; break;
                 case DFGOp::UNARY_PLUS: ss << "+"; break;
@@ -540,8 +573,12 @@ struct DFG {
         // Output edges
         for (size_t i = 0; i < nodes.size(); ++i) {
             const auto& node = nodes[i];
-            for (const auto* input : node->in) {
-                ss << "  n" << nodeIndex.at(input) << " -> n" << i << ";\n";
+            for (const auto& input : node->in) {
+                ss << "  n" << nodeIndex.at(input.node) << " -> n" << i;
+                if (input.port != 0) {
+                    ss << " [label=\"port " << input.port << "\"]";
+                }
+                ss << ";\n";
             }
         }
 
@@ -607,13 +644,27 @@ struct DFG {
                 ss << indentStr(indent + 3) << "\"module_type\": \"" << std::get<std::string>(node->data) << "\",\n";
             }
 
+            // Add output_names for multi-output nodes
+            if (!node->output_names.empty()) {
+                ss << indentStr(indent + 3) << "\"output_names\": [";
+                for (size_t j = 0; j < node->output_names.size(); ++j) {
+                    ss << "\"" << node->output_names[j] << "\"";
+                    if (j < node->output_names.size() - 1) ss << ", ";
+                }
+                ss << "],\n";
+            }
+
             // Add inputs
             ss << indentStr(indent + 3) << "\"inputs\": [";
             for (size_t j = 0; j < node->in.size(); ++j) {
                 // Find the index of the input node
                 for (size_t k = 0; k < nodes.size(); ++k) {
-                    if (nodes[k].get() == node->in[j]) {
-                        ss << k;
+                    if (nodes[k].get() == node->in[j].node) {
+                        if (node->in[j].port != 0) {
+                            ss << "{\"node\": " << k << ", \"port\": " << node->in[j].port << "}";
+                        } else {
+                            ss << k;
+                        }
                         break;
                     }
                 }
