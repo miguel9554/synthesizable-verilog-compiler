@@ -196,12 +196,14 @@ struct DFG {
 
     DFGNode* named_constant(int64_t v, const std::string& name) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::CONST, name, v));
+        nodes.back()->type = ResolvedType::makeInteger(32, false);
         constants[name] = nodes.back().get();
         return nodes.back().get();
     }
 
     DFGNode* constant(int64_t v) {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::CONST, v));
+        nodes.back()->type = ResolvedType::makeInteger(32, false);
         return nodes.back().get();
     }
 

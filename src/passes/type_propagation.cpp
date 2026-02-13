@@ -1,6 +1,8 @@
 #include "passes/type_propagation.h"
 
 #include <algorithm>
+#include <format>
+#include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
@@ -59,9 +61,16 @@ static bool tryInferType(DFGNode* node) {
     if (node->hasType()) return false;
 
     switch (node->op) {
-        // Leaf nodes — type should already be set during construction
+        // Leaf nodes — type must already be set during construction
         case DFGOp::INPUT:
+            throw std::runtime_error(std::format(
+                "Type propagation: INPUT node '{}' has no type", node->name));
+
         case DFGOp::CONST:
+            throw std::runtime_error(std::format(
+                "Type propagation: CONST node '{}' has no type", node->str()));
+
+        // MODULE outputs need submodule type info — deferred
         case DFGOp::MODULE:
             return false;
 
@@ -71,7 +80,11 @@ static bool tryInferType(DFGNode* node) {
         case DFGOp::MUL:
         case DFGOp::DIV:
         case DFGOp::POWER: {
-            if (node->in.size() < 2) return false;
+            if (node->in.size() < 2) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: binary op {} has {} inputs (expected 2)",
+                    node->str(), node->in.size()));
+            }
             auto* lhs = node->in[0].node;
             auto* rhs = node->in[1].node;
             if (!lhs->hasType() || !rhs->hasType()) return false;
@@ -85,7 +98,11 @@ static bool tryInferType(DFGNode* node) {
         case DFGOp::LE:
         case DFGOp::GT:
         case DFGOp::GE: {
-            if (node->in.size() < 2) return false;
+            if (node->in.size() < 2) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: comparison op {} has {} inputs (expected 2)",
+                    node->str(), node->in.size()));
+            }
             if (!node->in[0].node->hasType() || !node->in[1].node->hasType()) return false;
             node->type = makeOneBitUnsigned();
             return true;
@@ -94,7 +111,11 @@ static bool tryInferType(DFGNode* node) {
         // Shift ops: result = left operand type
         case DFGOp::SHL:
         case DFGOp::ASR: {
-            if (node->in.size() < 2) return false;
+            if (node->in.size() < 2) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: shift op {} has {} inputs (expected 2)",
+                    node->str(), node->in.size()));
+            }
             auto* lhs = node->in[0].node;
             if (!lhs->hasType()) return false;
             node->type = *lhs->type;
@@ -103,7 +124,11 @@ static bool tryInferType(DFGNode* node) {
 
         // MUX: result = type of data inputs (widened)
         case DFGOp::MUX: {
-            if (node->in.size() < 3) return false;
+            if (node->in.size() < 3) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: MUX {} has {} inputs (expected 3)",
+                    node->str(), node->in.size()));
+            }
             auto* tval = node->in[1].node;
             auto* fval = node->in[2].node;
             if (!tval->hasType() || !fval->hasType()) return false;
@@ -114,7 +139,10 @@ static bool tryInferType(DFGNode* node) {
         // MUX_N: result = widened type of all data inputs
         case DFGOp::MUX_N: {
             size_t n = node->in.size() / 2;
-            if (n == 0) return false;
+            if (n == 0) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: MUX_N {} has no inputs", node->str()));
+            }
             // Data values are in[n..2n-1]
             for (size_t i = n; i < node->in.size(); ++i) {
                 if (!node->in[i].node->hasType()) return false;
@@ -131,7 +159,10 @@ static bool tryInferType(DFGNode* node) {
         case DFGOp::UNARY_PLUS:
         case DFGOp::UNARY_NEGATE:
         case DFGOp::BITWISE_NOT: {
-            if (node->in.empty()) return false;
+            if (node->in.empty()) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: unary op {} has no inputs", node->str()));
+            }
             auto* operand = node->in[0].node;
             if (!operand->hasType()) return false;
             node->type = *operand->type;
@@ -140,7 +171,10 @@ static bool tryInferType(DFGNode* node) {
 
         // Logical NOT: 1-bit unsigned
         case DFGOp::LOGICAL_NOT: {
-            if (node->in.empty()) return false;
+            if (node->in.empty()) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: LOGICAL_NOT {} has no inputs", node->str()));
+            }
             if (!node->in[0].node->hasType()) return false;
             node->type = makeOneBitUnsigned();
             return true;
@@ -153,7 +187,10 @@ static bool tryInferType(DFGNode* node) {
         case DFGOp::REDUCTION_NOR:
         case DFGOp::REDUCTION_XOR:
         case DFGOp::REDUCTION_XNOR: {
-            if (node->in.empty()) return false;
+            if (node->in.empty()) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: reduction op {} has no inputs", node->str()));
+            }
             if (!node->in[0].node->hasType()) return false;
             node->type = makeOneBitUnsigned();
             return true;
@@ -169,12 +206,23 @@ static bool tryInferType(DFGNode* node) {
             return true;
         }
 
-        // INDEX: skip for now (future refinement)
-        case DFGOp::INDEX:
-            return false;
+        // INDEX: array element select — use array's type for now
+        // TODO: should derive element type from array dimensions
+        case DFGOp::INDEX: {
+            if (node->in.size() < 2) {
+                throw std::runtime_error(std::format(
+                    "Type propagation: INDEX {} has {} inputs (expected 2)",
+                    node->str(), node->in.size()));
+            }
+            auto* array = node->in[0].node;
+            if (!array->hasType()) return false;
+            node->type = *array->type;
+            return true;
+        }
     }
 
-    return false;
+    throw std::runtime_error(std::format(
+        "Type propagation: unhandled op {}", node->str()));
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +242,17 @@ bool propagateTypes(DFG& graph) {
         }
         anyChanged |= changed;
     } while (changed);
+
+    // Verify all nodes have types (except MODULE)
+    for (const auto& node : graph.nodes) {
+        if (node->op == DFGOp::MODULE) continue;
+        if (!node->hasType()) {
+            throw std::runtime_error(std::format(
+                "Type propagation: node {} still untyped after fixed-point",
+                node->str()));
+        }
+    }
+
     return anyChanged;
 }
 

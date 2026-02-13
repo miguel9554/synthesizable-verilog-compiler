@@ -76,10 +76,15 @@ static std::vector<DFGNode*> buildPostOrder(DFG& graph) {
 // ---------------------------------------------------------------------------
 
 static bool tryNormalize(DFG& graph, DFGNode* node) {
+    // Skip dead nodes (inputs cleared after redirectConsumers)
+    if (node->in.empty()) return false;
+
     // Rule 1: LOGICAL_NOT elimination
     if (node->op == DFGOp::LOGICAL_NOT) {
         auto* operand = node->in[0].node;
-        if (!operand->hasType()) return false;
+        if (!operand->hasType()) {
+            throw std::runtime_error(std::format("Cannot normalize LOGICAL_NOT: operand {} has no type", operand->str()));
+        }
 
         if (operand->type->width == 1) {
             // 1-bit: rewrite to BITWISE_NOT
@@ -110,6 +115,7 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
             if (val == 1) {
                 // EQ(x, 1) -> x
                 redirectConsumers(graph, node, lhs);
+                node->in.clear(); // see Rule 3 comment
                 return true;
             }
         }
@@ -125,6 +131,7 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
             if (val == 1) {
                 // EQ(1, x) -> x
                 redirectConsumers(graph, node, rhs);
+                node->in.clear(); // see Rule 3 comment
                 return true;
             }
         }
@@ -135,6 +142,9 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
         auto* inner = node->in[0].node;
         if (inner->op == DFGOp::BITWISE_NOT) {
             redirectConsumers(graph, node, inner->in[0].node);
+            // Dead node still lives in graph.nodes and gets revisited;
+            // clear inputs so it won't re-match. DCE removes it later.
+            node->in.clear();
             return true;
         }
     }

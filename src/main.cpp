@@ -1,13 +1,19 @@
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <sys/types.h>
 
 #include "passes/extractor.h"
 #include "passes/elaboration.h"
 #include "passes/constant_fold.h"
 #include "passes/condition_normalization.h"
 #include "passes/dce.h"
+#include "passes/flop_resolve.h"
 #include "passes/type_propagation.h"
+#include "util/debug.h"
 
 #include "slang/syntax/SyntaxTree.h"
 
@@ -113,18 +119,58 @@ int main(int argc, char** argv) {
     if (numPasses >= 2) {
         std::cout << "========================================" << std::endl;
         std::cout << "\nPass 2: Resolving types and expressions..." << std::endl;
-        std::cout << "(STUB - returning placeholder values)" << std::endl;
 
+        std::cout << "========================================" << std::endl;
+        std::cout << "Performing elaboration..." << std::endl;
+        std::cout << "========================================" << std::endl;
         auto resolvedModules = resolveModules(modules);
 
         // Optimization passes
         for (auto& module : resolvedModules) {
-            if (module.dfg) {
-                propagateTypes(*module.dfg);
-                normalizeConditions(*module.dfg);
-                constantFold(*module.dfg);
-                eliminateDeadCode(*module.dfg);
-            }
+            if (!module.dfg) continue;
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Module: " << module.name << std::endl;
+            std::cout << "========================================" << std::endl;
+
+
+            auto dumpDFG = [&](const int number, const std::string& passName) {
+                std::string dir = DEBUG_OUTPUT_DIR + "/" + module.name;
+                std::filesystem::create_directories(dir);
+                std::ofstream(std::format("{}/{}_{}.dot", dir, number, passName)) << module.dfg->toDot(passName);
+                std::ofstream(std::format("{}/{}_{}.josn", dir, number, passName)) << module.dfg->toJson();
+            };
+            dumpDFG(0, "elaboration");
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Performing type propagation..." << std::endl;
+            std::cout << "========================================" << std::endl;
+            propagateTypes(*module.dfg);
+            dumpDFG(1, "type_propagation");
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Performing condition normalization..." << std::endl;
+            std::cout << "========================================" << std::endl;
+            normalizeConditions(*module.dfg);
+            dumpDFG(2, "condition_normalization");
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Performing constant folding..." << std::endl;
+            std::cout << "========================================" << std::endl;
+            constantFold(*module.dfg);
+            dumpDFG(3, "constant_fold");
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Performing Dead Code Elimination..." << std::endl;
+            std::cout << "========================================" << std::endl;
+            eliminateDeadCode(*module.dfg);
+            dumpDFG(4, "dce");
+
+            std::cout << "========================================" << std::endl;
+            std::cout << "Performing Flop resolution..." << std::endl;
+            std::cout << "========================================" << std::endl;
+            resolveFlops(module);
+            dumpDFG(5, "flop_resolve");
         }
 
         std::cout << "----------------------------------------" << std::endl;
