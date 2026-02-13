@@ -1,13 +1,13 @@
 #pragma once
 
 #include "ir/dfg.h"
+#include "ir/types.h"
 #include "ir/unresolved.h"
 
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace custom_hdl {
@@ -24,35 +24,6 @@ typedef struct {
     edge_t edge;
     std::string name;
 } asyncTrigger_t;
-
-// ============================================================================
-// Resolved types (output of pass 2)
-// ============================================================================
-
-enum class ResolvedTypeKind {
-    Integer,
-    // Future: Real, Struct, Enum, etc.
-};
-
-struct ResolvedIntegerInfo {
-    bool is_signed = false;
-};
-
-using ResolvedTypeMetadata = std::variant<
-    std::monostate,
-    ResolvedIntegerInfo
->;
-
-// TODO should actually have a packed dimension? or we don't care?
-struct ResolvedType {
-    ResolvedTypeKind kind = ResolvedTypeKind::Integer;
-    int width = 0;
-    ResolvedTypeMetadata metadata;
-
-    void print(std::ostream& os) const;
-
-    static ResolvedType makeInteger(int width, bool is_signed);
-};
 
 struct ResolvedDimension {
     int left = 0;

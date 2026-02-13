@@ -5,6 +5,7 @@
 #include "passes/extractor.h"
 #include "passes/elaboration.h"
 #include "passes/constant_fold.h"
+#include "passes/type_propagation.h"
 
 #include "slang/syntax/SyntaxTree.h"
 
@@ -118,6 +119,7 @@ int main(int argc, char** argv) {
         for (auto& module : resolvedModules) {
             if (module.dfg) {
                 constantFold(*module.dfg);
+                propagateTypes(*module.dfg);
             }
         }
 

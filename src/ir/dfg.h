@@ -1,11 +1,12 @@
 #pragma once
 
-#include <format>
+#include "ir/types.h"
 
 #include <algorithm>
+#include <format>
 #include <map>
 #include <memory>
-#include <format>
+#include <optional>
 #include <vector>
 #include <string>
 #include <variant>
@@ -117,8 +118,13 @@ struct DFGNode {
         std::string
     > data;
 
+    // Type info (width, signedness) — set on leaf nodes, propagated by type pass
+    std::optional<ResolvedType> type;
+
     // Multi-output support: empty = single unnamed output
     std::vector<std::string> output_names;
+
+    bool hasType() const { return type.has_value(); }
 
     int num_outputs() const {
         return output_names.empty() ? 1 : static_cast<int>(output_names.size());

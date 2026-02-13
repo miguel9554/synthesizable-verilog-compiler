@@ -74,6 +74,11 @@ std::string DFG::toDot(const std::string& graphName) const {
             case DFGOp::REDUCTION_XNOR: ss << "~^"; break;
         }
 
+        // Append type info if available
+        if (node->hasType()) {
+            ss << "\\n[" << node->type->width;
+            ss << (node->type->isSigned() ? "s" : "u") << "]";
+        }
         ss << "\"];\n";
     }
 
@@ -162,6 +167,12 @@ std::string DFG::toJson(int indent) const {
                 if (j < node->output_names.size() - 1) ss << ", ";
             }
             ss << "],\n";
+        }
+
+        // Add type info if available
+        if (node->hasType()) {
+            ss << indentStr(indent + 3) << "\"type\": {\"width\": " << node->type->width
+               << ", \"signed\": " << (node->type->isSigned() ? "true" : "false") << "},\n";
         }
 
         // Add inputs

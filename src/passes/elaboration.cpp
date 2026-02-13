@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
-#include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -1223,13 +1222,16 @@ std::vector<std::string> generateIndexSuffixes(const std::vector<ResolvedDimensi
 // For vector inputs, creates base node + individual element nodes
 void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
     if (sig.dimensions.empty()) {
-        graph.input(sig.name);
+        auto* node = graph.input(sig.name);
+        node->type = sig.type;
     } else {
         // Create base node for dynamic read access
-        graph.input(sig.name);
+        auto* base = graph.input(sig.name);
+        base->type = sig.type;
         // Create individual element nodes
         for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
-            graph.input(sig.name + suffix);
+            auto* elem = graph.input(sig.name + suffix);
+            elem->type = sig.type;
         }
     }
 }
@@ -1240,16 +1242,19 @@ void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
 void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
     if (sig.dimensions.empty()) {
         auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+        n->type = sig.type;
         graph.nodes.push_back(std::move(n));
         graph.outputs[sig.name] = graph.nodes.back().get();
     } else {
         // Create base node for dynamic read access
         auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
+        n->type = sig.type;
         graph.nodes.push_back(std::move(n));
         graph.outputs[sig.name] = graph.nodes.back().get();
         // Create individual element nodes
         for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
             auto elemNode = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name + suffix);
+            elemNode->type = sig.type;
             graph.nodes.push_back(std::move(elemNode));
             graph.outputs[sig.name + suffix] = graph.nodes.back().get();
         }
@@ -1261,7 +1266,8 @@ void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
 // For flop .d/.q signals, handles special naming (my_flop[idx].d)
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     if (sig.dimensions.empty()) {
-        graph.signal(sig.name);
+        auto* node = graph.signal(sig.name);
+        node->type = sig.type;
         return;
     }
 
@@ -1275,12 +1281,14 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     }
 
     // Create aggregate node for dynamic access
-    const auto& aggregate = graph.signal(sig.name);
+    auto* aggregate = graph.signal(sig.name);
+    aggregate->type = sig.type;
 
     // Create individual element nodes
     for (const auto& idxSuffix : generateIndexSuffixes(sig.dimensions)) {
         std::string elemName = baseName + idxSuffix + typeSuffix;
-        const auto& individual = graph.signal(elemName);
+        auto* individual = graph.signal(elemName);
+        individual->type = sig.type;
         aggregate->in.push_back(individual);
     }
 }
