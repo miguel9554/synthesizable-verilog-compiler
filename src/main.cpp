@@ -5,6 +5,8 @@
 #include "passes/extractor.h"
 #include "passes/elaboration.h"
 #include "passes/constant_fold.h"
+#include "passes/condition_normalization.h"
+#include "passes/dce.h"
 #include "passes/type_propagation.h"
 
 #include "slang/syntax/SyntaxTree.h"
@@ -115,11 +117,13 @@ int main(int argc, char** argv) {
 
         auto resolvedModules = resolveModules(modules);
 
-        // Constant folding and algebraic simplification
+        // Optimization passes
         for (auto& module : resolvedModules) {
             if (module.dfg) {
-                constantFold(*module.dfg);
                 propagateTypes(*module.dfg);
+                normalizeConditions(*module.dfg);
+                constantFold(*module.dfg);
+                eliminateDeadCode(*module.dfg);
             }
         }
 
