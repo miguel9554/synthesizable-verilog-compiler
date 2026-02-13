@@ -84,6 +84,50 @@ inline const char* to_string(DFGOp op) {
     return "UNKNOWN";
 }
 
+// Returns the expected number of inputs for a given op.
+// -1 means variable (validated separately).
+inline int expectedInputs(DFGOp op) {
+    switch (op) {
+        case DFGOp::INPUT:  return 0;
+        case DFGOp::CONST:  return 0;
+        // OUTPUT: 0 (undriven) or 1 (driven) — validated separately
+        case DFGOp::OUTPUT: return -1;
+        // SIGNAL: 0 (undriven), 1 (driven), or N (aggregate) — validated separately
+        case DFGOp::SIGNAL: return -1;
+        // MODULE: variable input count (depends on ports)
+        case DFGOp::MODULE: return -1;
+        // MUX_N: variable (even, >= 2) — validated separately
+        case DFGOp::MUX_N:  return -1;
+
+        case DFGOp::INDEX:  return 2;
+        case DFGOp::ADD:    return 2;
+        case DFGOp::SUB:    return 2;
+        case DFGOp::MUL:    return 2;
+        case DFGOp::DIV:    return 2;
+        case DFGOp::EQ:     return 2;
+        case DFGOp::LT:     return 2;
+        case DFGOp::LE:     return 2;
+        case DFGOp::GT:     return 2;
+        case DFGOp::GE:     return 2;
+        case DFGOp::SHL:    return 2;
+        case DFGOp::ASR:    return 2;
+        case DFGOp::POWER:  return 2;
+        case DFGOp::MUX:    return 3;
+
+        case DFGOp::UNARY_PLUS:      return 1;
+        case DFGOp::UNARY_NEGATE:    return 1;
+        case DFGOp::BITWISE_NOT:     return 1;
+        case DFGOp::LOGICAL_NOT:     return 1;
+        case DFGOp::REDUCTION_AND:   return 1;
+        case DFGOp::REDUCTION_NAND:  return 1;
+        case DFGOp::REDUCTION_OR:    return 1;
+        case DFGOp::REDUCTION_NOR:   return 1;
+        case DFGOp::REDUCTION_XOR:   return 1;
+        case DFGOp::REDUCTION_XNOR:  return 1;
+    }
+    return -1;
+}
+
 } // namespace custom_hdl
 
 template<>
@@ -515,6 +559,35 @@ struct DFG {
 
     DFGNode* reductionXnor(DFGNode* a, const std::string& name = "") {
         return unaryOp(DFGOp::REDUCTION_XNOR, a, name);
+    }
+
+    // Validate that every node has the correct number of inputs for its op.
+    // Throws std::runtime_error on first violation.
+    void validate() const {
+        for (const auto& node : nodes) {
+            int expected = expectedInputs(node->op);
+            int actual = static_cast<int>(node->in.size());
+
+            if (expected >= 0 && actual != expected) {
+                throw std::runtime_error(std::format(
+                    "DFG validate: {} expects {} inputs, has {}",
+                    node->str(), expected, actual));
+            }
+
+            // Variable-count ops with specific constraints
+            if (node->op == DFGOp::OUTPUT && actual > 1) {
+                throw std::runtime_error(std::format(
+                    "DFG validate: OUTPUT {} has {} inputs (expected 0 or 1)",
+                    node->name, actual));
+            }
+            if (node->op == DFGOp::MUX_N) {
+                if (actual < 2 || actual % 2 != 0) {
+                    throw std::runtime_error(std::format(
+                        "DFG validate: MUX_N {} has {} inputs (expected even, >= 2)",
+                        node->str(), actual));
+                }
+            }
+        }
     }
 
     std::string toDot(const std::string& graphName = "DFG") const;

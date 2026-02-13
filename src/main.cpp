@@ -134,43 +134,25 @@ int main(int argc, char** argv) {
             std::cout << "========================================" << std::endl;
 
 
-            auto dumpDFG = [&](const int number, const std::string& passName) {
+            auto runPass = [&](const int number, const std::string& passName, auto passFn) {
+                std::cout << "========================================" << std::endl;
+                std::cout << "Performing " << passName << "..." << std::endl;
+                std::cout << "========================================" << std::endl;
+                module.dfg->validate();
+                passFn();
+                module.dfg->validate();
                 std::string dir = DEBUG_OUTPUT_DIR + "/" + module.name;
                 std::filesystem::create_directories(dir);
                 std::ofstream(std::format("{}/{}_{}.dot", dir, number, passName)) << module.dfg->toDot(passName);
-                std::ofstream(std::format("{}/{}_{}.josn", dir, number, passName)) << module.dfg->toJson();
+                std::ofstream(std::format("{}/{}_{}.json", dir, number, passName)) << module.dfg->toJson();
             };
-            dumpDFG(0, "elaboration");
 
-            std::cout << "========================================" << std::endl;
-            std::cout << "Performing type propagation..." << std::endl;
-            std::cout << "========================================" << std::endl;
-            propagateTypes(*module.dfg);
-            dumpDFG(1, "type_propagation");
-
-            std::cout << "========================================" << std::endl;
-            std::cout << "Performing condition normalization..." << std::endl;
-            std::cout << "========================================" << std::endl;
-            normalizeConditions(*module.dfg);
-            dumpDFG(2, "condition_normalization");
-
-            std::cout << "========================================" << std::endl;
-            std::cout << "Performing constant folding..." << std::endl;
-            std::cout << "========================================" << std::endl;
-            constantFold(*module.dfg);
-            dumpDFG(3, "constant_fold");
-
-            std::cout << "========================================" << std::endl;
-            std::cout << "Performing Dead Code Elimination..." << std::endl;
-            std::cout << "========================================" << std::endl;
-            eliminateDeadCode(*module.dfg);
-            dumpDFG(4, "dce");
-
-            std::cout << "========================================" << std::endl;
-            std::cout << "Performing Flop resolution..." << std::endl;
-            std::cout << "========================================" << std::endl;
-            resolveFlops(module);
-            dumpDFG(5, "flop_resolve");
+            runPass(0, "elaboration", []{});
+            runPass(1, "type_propagation", [&]{ propagateTypes(*module.dfg); });
+            runPass(2, "condition_normalization", [&]{ normalizeConditions(*module.dfg); });
+            runPass(3, "constant_fold", [&]{ constantFold(*module.dfg); });
+            runPass(4, "dce", [&]{ eliminateDeadCode(*module.dfg); });
+            runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
         }
 
         std::cout << "----------------------------------------" << std::endl;
