@@ -1,11 +1,13 @@
 #include "ir/dfg.h"
 
 #include <map>
+#include <set>
 #include <sstream>
 
 namespace custom_hdl {
 
-std::string DFG::toDot(const std::string& graphName) const {
+std::string DFG::toDot(const std::string& graphName,
+                       const std::set<const DFGNode*>& errorNodes) const {
     std::ostringstream ss;
     ss << "digraph " << graphName << " {\n";
     ss << "  rankdir=TB;\n";
@@ -82,7 +84,11 @@ std::string DFG::toDot(const std::string& graphName) const {
         if (node->loc) {
             ss << "\\n" << node->loc->file << ":" << node->loc->line;
         }
-        ss << "\"];\n";
+        ss << "\"";
+        if (errorNodes.count(node.get())) {
+            ss << ", style=filled, fillcolor=red, fontcolor=white";
+        }
+        ss << "];\n";
     }
 
     ss << "\n";

@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <vector>
 #include <string>
 #include <variant>
@@ -201,6 +202,11 @@ struct DFGNode {
         return result;
     }
 };
+
+inline CompilerError::CompilerError(const std::string& msg, const DFGNode* node)
+    : std::runtime_error(node && node->loc ? node->loc->str() + ": " + msg : msg),
+      loc(node ? node->loc : std::nullopt),
+      errorNode(node) {}
 
 } // namespace custom_hdl
 
@@ -565,36 +571,53 @@ struct DFG {
         return unaryOp(DFGOp::REDUCTION_XNOR, a, name);
     }
 
-    // Validate that every node has the correct number of inputs for its op.
-    // Throws std::runtime_error on first violation.
+    // Validate that every node with inputs has the correct count for its op.
+    // Nodes with 0 inputs are always allowed (orphans cleaned up by DCE).
     void validate() const {
         for (const auto& node : nodes) {
             int expected = expectedInputs(node->op);
             int actual = static_cast<int>(node->in.size());
 
+            if (actual == 0) continue; // orphan — valid until DCE
+
             if (expected >= 0 && actual != expected) {
                 throw CompilerError(std::format(
                     "DFG validate: {} expects {} inputs, has {}",
-                    node->str(), expected, actual));
+                    node->str(), expected, actual), node.get());
             }
 
             // Variable-count ops with specific constraints
             if (node->op == DFGOp::OUTPUT && actual > 1) {
                 throw CompilerError(std::format(
                     "DFG validate: OUTPUT {} has {} inputs (expected 0 or 1)",
-                    node->name, actual));
+                    node->name, actual), node.get());
             }
             if (node->op == DFGOp::MUX_N) {
                 if (actual < 2 || actual % 2 != 0) {
                     throw CompilerError(std::format(
                         "DFG validate: MUX_N {} has {} inputs (expected even, >= 2)",
-                        node->str(), actual));
+                        node->str(), actual), node.get());
                 }
             }
         }
     }
 
-    std::string toDot(const std::string& graphName = "DFG") const;
+    // Check that no node that requires inputs has 0.
+    // Run after DCE — orphan nodes should have been removed by then.
+    void validateNoOrphans() const {
+        for (const auto& node : nodes) {
+            int expected = expectedInputs(node->op);
+            int actual = static_cast<int>(node->in.size());
+            if (expected > 0 && actual == 0) {
+                throw CompilerError(std::format(
+                    "DFG validateNoOrphans: {} expects {} inputs, has 0",
+                    node->str(), expected), node.get());
+            }
+        }
+    }
+
+    std::string toDot(const std::string& graphName = "DFG",
+                      const std::set<const DFGNode*>& errorNodes = {}) const;
     std::string toJson(int indent = 0) const;
 };
 

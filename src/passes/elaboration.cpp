@@ -413,11 +413,13 @@ DFGNode* buildExprDFG(
                 for (const auto& elemSelect: *selectors){
                     if (!elemSelect->selector){
                         throw CompilerError(
-                            "Empty selector not allowed.");
+                            "Empty selector not allowed.",
+                            resolveSourceLoc(*expr, ctx.sm));
                     }
                     if (elemSelect->selector->kind != SyntaxKind::BitSelect){
                         throw CompilerError(
-                            "Currently only single element select supported.");
+                            "Currently only single element select supported.",
+                            resolveSourceLoc(*expr, ctx.sm));
                     }
                     const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
                     const auto& selectorExpr = bitSelect.expr;
@@ -532,7 +534,8 @@ DFGNode* buildExprDFG(
         }
 
         case SyntaxKind::DivideExpression: {
-            throw CompilerError("DIV operation not yet supported in DFG");
+            throw CompilerError("DIV operation not yet supported in DFG",
+                                resolveSourceLoc(*expr, ctx.sm));
         }
 
         case SyntaxKind::EqualityExpression: {
@@ -602,10 +605,12 @@ DFGNode* buildExprDFG(
         case SyntaxKind::ConditionalExpression: {
             auto& cond = expr->as<ConditionalExpressionSyntax>();
             if (cond.predicate->conditions.size() != 1) {
-                throw CompilerError("Only single condition supported in ternary expression");
+                throw CompilerError("Only single condition supported in ternary expression",
+                                    resolveSourceLoc(*expr, ctx.sm));
             }
             if (cond.predicate->conditions[0]->matchesClause) {
-                throw CompilerError("matches clause not supported in ternary expression");
+                throw CompilerError("matches clause not supported in ternary expression",
+                                    resolveSourceLoc(*expr, ctx.sm));
             }
             auto* condNode = buildExprDFG(cond.predicate->conditions[0]->expr, ctx);
             auto* trueNode = buildExprDFG(cond.left, ctx);
@@ -618,7 +623,8 @@ DFGNode* buildExprDFG(
         default:
             throw CompilerError(
                 "Unsupported expression kind in DFG building: " +
-                std::string(toString(expr->kind)));
+                std::string(toString(expr->kind)),
+                resolveSourceLoc(*expr, ctx.sm));
     }
 }
 
@@ -642,7 +648,8 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
         selectors = &identifier.selectors;
     } else {
         throw CompilerError(
-        "Left can only be variable name: " + std::string(toString(left->kind)));
+        "Left can only be variable name: " + std::string(toString(left->kind)),
+        resolveSourceLoc(assignExpr, ctx.sm));
     }
 
     // Build the full element name for LHS by evaluating selectors statically
@@ -650,11 +657,13 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     if (selectors) {
         for (const auto& elemSelect : *selectors) {
             if (!elemSelect->selector) {
-                throw CompilerError("Empty selector not allowed.");
+                throw CompilerError("Empty selector not allowed.",
+                                    resolveSourceLoc(assignExpr, ctx.sm));
             }
             if (elemSelect->selector->kind != SyntaxKind::BitSelect) {
                 throw CompilerError(
-                    "Currently only single element select supported.");
+                    "Currently only single element select supported.",
+                    resolveSourceLoc(assignExpr, ctx.sm));
             }
             const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
             const auto& selectorExpr = bitSelect.expr;
@@ -665,7 +674,8 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
                 indexSuffix += "[" + std::to_string(idx) + "]";
             } catch (const std::runtime_error&) {
                 throw CompilerError(
-                    "Dynamic index on LHS not supported for: " + baseName);
+                    "Dynamic index on LHS not supported for: " + baseName,
+                    resolveSourceLoc(assignExpr, ctx.sm));
             }
         }
     }
@@ -679,7 +689,8 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
             outputName = baseName + indexSuffix + ".d";
         } else {
             throw CompilerError(
-                std::format("{} NOT a flop and assigned on seq. block", baseName));
+                std::format("{} NOT a flop and assigned on seq. block", baseName),
+                resolveSourceLoc(assignExpr, ctx.sm));
         }
     } else {
         outputName = baseName + indexSuffix;
@@ -691,7 +702,8 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     } else if (ctx.graph.signals.contains(outputName)) {
         ctx.graph.connectSignal(outputName, RHSexprNode);
     } else {
-        throw CompilerError("Cannot assign to undeclared: " + outputName);
+        throw CompilerError("Cannot assign to undeclared: " + outputName,
+                            resolveSourceLoc(assignExpr, ctx.sm));
     }
 
     // If the assign is sequential, set the triggers of the signal
@@ -706,8 +718,10 @@ void resolveAssignInPlace(
         ResolutionContext& ctx
     ){
     if (!syntax) throw CompilerError("Null pointer");
-    if (syntax->strength) throw CompilerError("Strength statement not valid.");
-    if (syntax->delay) throw CompilerError("Delay statement not valid.");
+    if (syntax->strength) throw CompilerError("Strength statement not valid.",
+                                               resolveSourceLoc(*syntax, ctx.sm));
+    if (syntax->delay) throw CompilerError("Delay statement not valid.",
+                                            resolveSourceLoc(*syntax, ctx.sm));
 
     ctx.is_sequential = false;
 
@@ -715,7 +729,8 @@ void resolveAssignInPlace(
         if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
             throw CompilerError(
                 "Expected assignment expression, got: " +
-                std::string(toString(assignExpr->kind)));
+                std::string(toString(assignExpr->kind)),
+                resolveSourceLoc(*assignExpr, ctx.sm));
         }
 
         const auto& binaryAssign = assignExpr->as<BinaryExpressionSyntax>();
@@ -731,7 +746,8 @@ void resolveExpressionStatementInPlace(
                                                   SyntaxKind::AssignmentExpression;
     if (expr->kind != expectedKind){
         throw CompilerError(
-        "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
+        "Can only process assign expression. Current: " + std::string(toString(expr->kind)),
+        resolveSourceLoc(*exprStatement, ctx.sm));
     }
     const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
     resolveAssignExpression(assignExpr, ctx);
@@ -742,10 +758,12 @@ void resolveConditionalStatementInPlace(
         ResolutionContext& ctx){
     const auto& predicate = conditionalStatement->predicate;
     if (conditionalStatement->uniqueOrPriority){
-        throw CompilerError("Unique/priority not supported on if");
+        throw CompilerError("Unique/priority not supported on if",
+                            resolveSourceLoc(*conditionalStatement, ctx.sm));
     }
     if (predicate->conditions.size()>1){
-        throw CompilerError("Support for single predicate on if");
+        throw CompilerError("Support for single predicate on if",
+                            resolveSourceLoc(*conditionalStatement, ctx.sm));
     }
     const auto& predicateExpr = predicate->conditions[0]->expr;
 
@@ -839,12 +857,14 @@ void resolveConditionalStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw CompilerError("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName,
+                                        resolveSourceLoc(*conditionalStatement, ctx.sm));
                 }
                 oldDriver = qNode;
             } else {
                 throw CompilerError(
-                    "Signal is not assigned in IF branch but not other: " + outName);
+                    "Signal is not assigned in IF branch but not other: " + outName,
+                    resolveSourceLoc(*conditionalStatement, ctx.sm));
             }
         }
 
@@ -886,12 +906,14 @@ void resolveConditionalStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw CompilerError("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName,
+                                        resolveSourceLoc(*conditionalStatement, ctx.sm));
                 }
                 oldDriver = qNode;
             } else {
                 throw CompilerError(
-                    "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
+                    "Signal '" + elseName + "' is only assigned in ELSE branch, not supported",
+                    resolveSourceLoc(*conditionalStatement, ctx.sm));
             }
         }
 
@@ -909,16 +931,19 @@ void resolveCaseStatementInPlace(
         ResolutionContext& ctx) {
 
     if (caseStatement->uniqueOrPriority) {
-        throw CompilerError("unique/priority case not supported");
+        throw CompilerError("unique/priority case not supported",
+                            resolveSourceLoc(*caseStatement, ctx.sm));
     }
 
     // Only support basic 'case', not casez/casex
     auto caseKeyword = caseStatement->caseKeyword.kind;
     if (caseKeyword == slang::parsing::TokenKind::CaseZKeyword) {
-        throw CompilerError("casez not supported");
+        throw CompilerError("casez not supported",
+                            resolveSourceLoc(*caseStatement, ctx.sm));
     }
     if (caseKeyword == slang::parsing::TokenKind::CaseXKeyword) {
-        throw CompilerError("casex not supported");
+        throw CompilerError("casex not supported",
+                            resolveSourceLoc(*caseStatement, ctx.sm));
     }
 
     // Build the selector expression node
@@ -978,7 +1003,8 @@ void resolveCaseStatementInPlace(
             const auto& caseItem = item->as<StandardCaseItemSyntax>();
 
             if (caseItem.expressions.size() != 1) {
-                throw CompilerError("Multiple expressions per case item not yet supported");
+                throw CompilerError("Multiple expressions per case item not yet supported",
+                                    resolveSourceLoc(*caseStatement, ctx.sm));
             }
 
             // Build condition: selector == case_value
@@ -994,7 +1020,8 @@ void resolveCaseStatementInPlace(
             normalCases.push_back({conditionNode, getDrivers(ctx.graph)});
         } else {
             throw CompilerError(
-                "Unsupported case item kind: " + std::string(toString(item->kind)));
+                "Unsupported case item kind: " + std::string(toString(item->kind)),
+                resolveSourceLoc(*caseStatement, ctx.sm));
         }
     }
 
@@ -1054,14 +1081,16 @@ void resolveCaseStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw CompilerError("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName,
+                                        resolveSourceLoc(*caseStatement, ctx.sm));
                 }
                 caseValue = qNode;
                 // Also set defaultValue so subsequent branches use the same node
                 defaultValue = caseValue;
             } else {
                 throw CompilerError(
-                    "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback");
+                    "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback",
+                    resolveSourceLoc(*caseStatement, ctx.sm));
             }
 
             selectors.push_back(c.condition);
@@ -1134,7 +1163,8 @@ void resolveStatementInPlace(
 
         default:
             throw CompilerError(
-                "We expect all statements to be expressions. Current: " + std::string(toString(statement->kind)));
+                "We expect all statements to be expressions. Current: " + std::string(toString(statement->kind)),
+                resolveSourceLoc(*statement, ctx.sm));
     }
 }
 
@@ -1145,7 +1175,8 @@ void resolveProceduralComboInPlace(
 ){
     if (statement->kind != SyntaxKind::SequentialBlockStatement){
         throw CompilerError(
-        "Statement not synthesizable: " + std::string(toString(statement->kind)));
+        "Statement not synthesizable: " + std::string(toString(statement->kind)),
+        resolveSourceLoc(*statement, ctx.sm));
     }
     // always_comb is not sequential
     ctx.is_sequential = false;
@@ -1225,7 +1256,8 @@ void resolveProceduralTimingInPlace(
         }
         default:
             throw CompilerError(
-                "Not supported timing control: " + std::string(toString(timingControl->kind)));
+                "Not supported timing control: " + std::string(toString(timingControl->kind)),
+                resolveSourceLoc(*timingStatement, ctx.sm));
 
     }
     ctx.triggers = triggers;

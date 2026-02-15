@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 #include <sys/types.h>
 
@@ -14,6 +15,7 @@
 #include "passes/flop_resolve.h"
 #include "passes/type_propagation.h"
 #include "util/debug.h"
+#include "util/source_loc.h"
 
 #include "slang/syntax/SyntaxTree.h"
 
@@ -102,6 +104,8 @@ int main(int argc, char** argv) {
     std::cout << "Parsing successful!" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
 
+    try {
+
     // Pass 1: Build unresolved IR
     std::cout << "\nPass 1: Building unresolved IR..." << std::endl;
     auto modules = buildIR(*tree);
@@ -139,8 +143,20 @@ int main(int argc, char** argv) {
                 std::cout << "Performing " << passName << "..." << std::endl;
                 std::cout << "========================================" << std::endl;
                 module.dfg->validate();
-                passFn();
-                module.dfg->validate();
+
+                try {
+                    passFn();
+                    module.dfg->validate();
+                } catch (const CompilerError& e) {
+                    std::string dir = DEBUG_OUTPUT_DIR + "/" + module.name;
+                    std::filesystem::create_directories(dir);
+                    std::set<const DFGNode*> errorNodes;
+                    if (e.errorNode) errorNodes.insert(e.errorNode);
+                    std::ofstream(std::format("{}/{}_{}_ERROR.dot", dir, number, passName))
+                        << module.dfg->toDot(passName + "_ERROR", errorNodes);
+                    throw;
+                }
+
                 std::string dir = DEBUG_OUTPUT_DIR + "/" + module.name;
                 std::filesystem::create_directories(dir);
                 std::ofstream(std::format("{}/{}_{}.dot", dir, number, passName)) << module.dfg->toDot(passName);
@@ -152,6 +168,7 @@ int main(int argc, char** argv) {
             runPass(2, "condition_normalization", [&]{ normalizeConditions(*module.dfg); });
             runPass(3, "constant_fold", [&]{ constantFold(*module.dfg); });
             runPass(4, "dce", [&]{ eliminateDeadCode(*module.dfg); });
+            module.dfg->validateNoOrphans();
             runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
         }
 
@@ -168,6 +185,11 @@ int main(int argc, char** argv) {
     std::cout << "========================================" << std::endl;
     std::cout << "Compilation completed successfully!" << std::endl;
     std::cout << "Found " << modules.size() << " module(s)." << std::endl;
+
+    } catch (const CompilerError& e) {
+        std::cerr << "ERROR: " << e.what() << std::endl;
+        return 1;
+    }
 
     return 0;
 }

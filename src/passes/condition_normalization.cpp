@@ -85,7 +85,7 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
     if (node->op == DFGOp::LOGICAL_NOT) {
         auto* operand = node->in[0].node;
         if (!operand->hasType()) {
-            throw CompilerError(std::format("Cannot normalize LOGICAL_NOT: operand {} has no type", operand->str()), node->loc);
+            throw CompilerError(std::format("Cannot normalize LOGICAL_NOT: operand {} has no type", operand->str()), node);
         }
 
         if (operand->type->width == 1) {
