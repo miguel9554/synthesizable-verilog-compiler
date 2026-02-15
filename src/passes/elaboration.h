@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace slang { class SourceManager; }
+
 namespace custom_hdl {
 
 // ============================================================================
@@ -19,10 +21,12 @@ using ModuleLookup = std::unordered_map<std::string, const UnresolvedModule*>;
 
 // Resolve a single module given parameter values and a lookup table for submodules
 ResolvedModule resolveModule(const UnresolvedModule& module, const ParameterContext& ctx,
-                             const ModuleLookup& moduleLookup);
+                             const ModuleLookup& moduleLookup,
+                             const slang::SourceManager& sourceManager);
 
 // Resolve all modules (using default parameter values)
 std::vector<ResolvedModule> resolveModules(
-    const std::vector<std::unique_ptr<UnresolvedModule>>& modules);
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules,
+    const slang::SourceManager& sourceManager);
 
 } // namespace custom_hdl

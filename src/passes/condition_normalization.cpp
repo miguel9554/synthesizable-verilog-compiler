@@ -1,5 +1,7 @@
 #include "passes/condition_normalization.h"
 
+#include "util/source_loc.h"
+
 #include <cassert>
 #include <unordered_set>
 #include <vector>
@@ -83,7 +85,7 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
     if (node->op == DFGOp::LOGICAL_NOT) {
         auto* operand = node->in[0].node;
         if (!operand->hasType()) {
-            throw std::runtime_error(std::format("Cannot normalize LOGICAL_NOT: operand {} has no type", operand->str()));
+            throw CompilerError(std::format("Cannot normalize LOGICAL_NOT: operand {} has no type", operand->str()), node->loc);
         }
 
         if (operand->type->width == 1) {
@@ -93,6 +95,7 @@ static bool tryNormalize(DFG& graph, DFGNode* node) {
         } else {
             // Multi-bit: rewrite to EQ(operand, 0)
             auto* zero = graph.constant(0);
+            zero->loc = node->loc;
             node->op = DFGOp::EQ;
             node->in = {DFGOutput(operand), DFGOutput(zero)};
             return true;

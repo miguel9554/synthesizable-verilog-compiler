@@ -2,6 +2,7 @@
 #include "ir/dfg.h"
 #include "ir/resolved.h"
 #include "ir/unresolved.h"
+#include "util/source_loc_resolve.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxNode.h"
@@ -30,9 +31,9 @@ struct ResolutionContext {
     ResolvedModule* thisModule;
     const std::set<std::string>& flopNames;
     const ParameterContext& params;
+    const slang::SourceManager& sm;
     bool is_sequential;
     std::vector<asyncTrigger_t> triggers;
-    // TODO: Add ResolvedModule reference when needed
 };
 
 // ============================================================================
@@ -78,7 +79,7 @@ void resolveStatementInPlace(
 // Throws if a referenced parameter is not in the context
 int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContext& ctx) {
     if (!expr) {
-        throw std::runtime_error("Cannot evaluate null expression");
+        throw CompilerError("Cannot evaluate null expression");
     }
 
     switch (expr->kind) {
@@ -96,7 +97,7 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
             std::string paramName(name.identifier.valueText());
             auto it = ctx.values.find(paramName);
             if (it == ctx.values.end()) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Parameter '" + paramName + "' not found in context");
             }
             return it->second;
@@ -139,7 +140,7 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
             auto& binary = expr->as<BinaryExpressionSyntax>();
             auto divisor = evaluateConstantExpr(binary.right, ctx);
             if (divisor == 0) {
-                throw std::runtime_error("Division by zero in constant expression");
+                throw CompilerError("Division by zero in constant expression");
             }
             return evaluateConstantExpr(binary.left, ctx) / divisor;
         }
@@ -150,7 +151,7 @@ int64_t evaluateConstantExpr(const ExpressionSyntax* expr, const ParameterContex
         }
 
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported expression kind in constant evaluation: " +
                 std::string(toString(expr->kind)));
     }
@@ -175,18 +176,18 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
     if (param.type.syntax->isKind(SyntaxKind::ImplicitType)){
         resolved.type = ResolvedType::makeInteger(32, false);
     } else{
-        throw std::runtime_error("Only implicit param type supported");
+        throw CompilerError("Only implicit param type supported");
     }
 
     // TODO only support for scalar params
     if (param.dimensions.syntax) {
-        throw std::runtime_error("Param with dimensions not supported.");
+        throw CompilerError("Param with dimensions not supported.");
     }
 
     // Localparams cannot be overridden by instantiation context
     if (isLocal) {
         if (!param.defaultValue) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Localparam '" + param.name + "' must have a default value");
         }
         ParameterContext mergedCtx = topCtx;
@@ -231,7 +232,7 @@ ResolvedParam resolveParameter(const UnresolvedParam& param, const ParameterCont
             oss << "  '" << k << "' -> '" << v << "'\n";
         }
 
-        throw std::runtime_error(oss.str());
+        throw CompilerError(oss.str());
     }
 
     return resolved;
@@ -254,11 +255,11 @@ std::vector<ResolvedDimension> ResolveDimensions(
     if (!dimensionsSyntaxList.empty()) {
         for (const auto* dimSyntax : dimensionsSyntaxList) {
             if (!dimSyntax->specifier) {
-                throw std::runtime_error("Dimension specifier is null");
+                throw CompilerError("Dimension specifier is null");
             }
 
             if (!dimSyntax->specifier->isKind(SyntaxKind::RangeDimensionSpecifier)) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Only range dimension specifier supported, got: " +
                     std::string(toString(dimSyntax->specifier->kind)));
             }
@@ -266,7 +267,7 @@ std::vector<ResolvedDimension> ResolveDimensions(
             auto& rangeSpec = dimSyntax->specifier->as<RangeDimensionSpecifierSyntax>();
 
             if (!rangeSpec.selector->isKind(SyntaxKind::SimpleRangeSelect)) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Only simple range select supported, got: " +
                     std::string(toString(rangeSpec.selector->kind)));
             }
@@ -317,7 +318,7 @@ ResolvedType resolveType(
             break;
         }
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported type: " +
                 std::string(toString(syntax.kind)));
     }
@@ -351,7 +352,7 @@ DFGNode* resolveIdentifier(
     // Use lookupSignal helper - DO NOT CREATE
     DFGNode* node = graph.lookupSignal(signalName);
     if (throw_on_not_found && node == nullptr) {
-        throw std::runtime_error("Undeclared signal: '" + signalName + "'");
+        throw CompilerError("Undeclared signal: '" + signalName + "'");
     }
     return node;
 }
@@ -363,7 +364,7 @@ DFGNode* buildExprDFG(
         ResolutionContext& ctx
 ) {
     if (!expr) {
-        throw std::runtime_error("Cannot build DFG from null expression");
+        throw CompilerError("Cannot build DFG from null expression");
     }
 
     switch (expr->kind) {
@@ -371,13 +372,17 @@ DFGNode* buildExprDFG(
             auto& literal = expr->as<LiteralExpressionSyntax>();
             auto text = literal.literal.rawText();
             int64_t value = std::stoll(std::string(text));
-            return ctx.graph.constant(value);
+            auto* node = ctx.graph.constant(value);
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::IntegerVectorExpression: {
             auto& vecExpr = expr->as<IntegerVectorExpressionSyntax>();
             const auto value = parseIntegerVectorExpression(vecExpr);
-            return ctx.graph.constant(value);
+            auto* node = ctx.graph.constant(value);
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::IdentifierName: {
@@ -407,17 +412,18 @@ DFGNode* buildExprDFG(
             if (selectors){
                 for (const auto& elemSelect: *selectors){
                     if (!elemSelect->selector){
-                        throw std::runtime_error(
+                        throw CompilerError(
                             "Empty selector not allowed.");
                     }
                     if (elemSelect->selector->kind != SyntaxKind::BitSelect){
-                        throw std::runtime_error(
+                        throw CompilerError(
                             "Currently only single element select supported.");
                     }
                     const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
                     const auto& selectorExpr = bitSelect.expr;
                     auto* selectorExprNode = buildExprDFG(selectorExpr, ctx);
                     indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode);
+                    indexedSignalNode->loc = resolveSourceLoc(*expr, ctx.sm);
                 }
             }
 
@@ -432,141 +438,185 @@ DFGNode* buildExprDFG(
         // Unary operations
         case SyntaxKind::UnaryPlusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.unaryPlus(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.unaryPlus(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryMinusExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.unaryNegate(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.unaryNegate(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseAndExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionAnd(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionAnd(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseNandExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionNand(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionNand(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseOrExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionOr(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionOr(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseNorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionNor(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionNor(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseXorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionXor(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionXor(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseXnorExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.reductionXnor(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.reductionXnor(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryLogicalNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.logicalNot(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.logicalNot(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::UnaryBitwiseNotExpression: {
             auto& unary = expr->as<PrefixUnaryExpressionSyntax>();
-            return ctx.graph.bitwiseNot(buildExprDFG(unary.operand, ctx));
+            auto* node = ctx.graph.bitwiseNot(buildExprDFG(unary.operand, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         // Binary operations
         case SyntaxKind::AddExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.add(buildExprDFG(binary.left, ctx),
-                                 buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.add(buildExprDFG(binary.left, ctx),
+                                       buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::SubtractExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.sub(buildExprDFG(binary.left, ctx),
-                                 buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.sub(buildExprDFG(binary.left, ctx),
+                                       buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::MultiplyExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.mul(buildExprDFG(binary.left, ctx),
-                                 buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.mul(buildExprDFG(binary.left, ctx),
+                                       buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::DivideExpression: {
-            throw std::runtime_error("DIV operation not yet supported in DFG");
+            throw CompilerError("DIV operation not yet supported in DFG");
         }
 
         case SyntaxKind::EqualityExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.eq(buildExprDFG(binary.left, ctx),
-                                buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.eq(buildExprDFG(binary.left, ctx),
+                                      buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::LessThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.lt(buildExprDFG(binary.left, ctx),
-                                buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.lt(buildExprDFG(binary.left, ctx),
+                                      buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::LessThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.le(buildExprDFG(binary.left, ctx),
-                                buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.le(buildExprDFG(binary.left, ctx),
+                                      buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::GreaterThanExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.gt(buildExprDFG(binary.left, ctx),
-                                buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.gt(buildExprDFG(binary.left, ctx),
+                                      buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::GreaterThanEqualExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.ge(buildExprDFG(binary.left, ctx),
-                                buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.ge(buildExprDFG(binary.left, ctx),
+                                      buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::ArithmeticShiftLeftExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.shl(buildExprDFG(binary.left, ctx),
-                                 buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.shl(buildExprDFG(binary.left, ctx),
+                                       buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::ArithmeticShiftRightExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.asr(buildExprDFG(binary.left, ctx),
-                                 buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.asr(buildExprDFG(binary.left, ctx),
+                                       buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::PowerExpression: {
             auto& binary = expr->as<BinaryExpressionSyntax>();
-            return ctx.graph.power(buildExprDFG(binary.left, ctx),
-                                   buildExprDFG(binary.right, ctx));
+            auto* node = ctx.graph.power(buildExprDFG(binary.left, ctx),
+                                         buildExprDFG(binary.right, ctx));
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         case SyntaxKind::ConditionalExpression: {
             auto& cond = expr->as<ConditionalExpressionSyntax>();
             if (cond.predicate->conditions.size() != 1) {
-                throw std::runtime_error("Only single condition supported in ternary expression");
+                throw CompilerError("Only single condition supported in ternary expression");
             }
             if (cond.predicate->conditions[0]->matchesClause) {
-                throw std::runtime_error("matches clause not supported in ternary expression");
+                throw CompilerError("matches clause not supported in ternary expression");
             }
             auto* condNode = buildExprDFG(cond.predicate->conditions[0]->expr, ctx);
             auto* trueNode = buildExprDFG(cond.left, ctx);
             auto* falseNode = buildExprDFG(cond.right, ctx);
-            return ctx.graph.mux(condNode, trueNode, falseNode);
+            auto* node = ctx.graph.mux(condNode, trueNode, falseNode);
+            node->loc = resolveSourceLoc(*expr, ctx.sm);
+            return node;
         }
 
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported expression kind in DFG building: " +
                 std::string(toString(expr->kind)));
     }
@@ -591,7 +641,7 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
         baseName = identifier.identifier.valueText();
         selectors = &identifier.selectors;
     } else {
-        throw std::runtime_error(
+        throw CompilerError(
         "Left can only be variable name: " + std::string(toString(left->kind)));
     }
 
@@ -600,10 +650,10 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     if (selectors) {
         for (const auto& elemSelect : *selectors) {
             if (!elemSelect->selector) {
-                throw std::runtime_error("Empty selector not allowed.");
+                throw CompilerError("Empty selector not allowed.");
             }
             if (elemSelect->selector->kind != SyntaxKind::BitSelect) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Currently only single element select supported.");
             }
             const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
@@ -614,7 +664,7 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
                 int64_t idx = evaluateConstantExpr(selectorExpr, ctx.params);
                 indexSuffix += "[" + std::to_string(idx) + "]";
             } catch (const std::runtime_error&) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Dynamic index on LHS not supported for: " + baseName);
             }
         }
@@ -628,7 +678,7 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
         if (ctx.flopNames.contains(baseName)) {
             outputName = baseName + indexSuffix + ".d";
         } else {
-            throw std::runtime_error(
+            throw CompilerError(
                 std::format("{} NOT a flop and assigned on seq. block", baseName));
         }
     } else {
@@ -641,7 +691,7 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
     } else if (ctx.graph.signals.contains(outputName)) {
         ctx.graph.connectSignal(outputName, RHSexprNode);
     } else {
-        throw std::runtime_error("Cannot assign to undeclared: " + outputName);
+        throw CompilerError("Cannot assign to undeclared: " + outputName);
     }
 
     // If the assign is sequential, set the triggers of the signal
@@ -655,15 +705,15 @@ void resolveAssignInPlace(
         const ContinuousAssignSyntax* syntax,
         ResolutionContext& ctx
     ){
-    if (!syntax) throw std::runtime_error("Null pointer");
-    if (syntax->strength) throw std::runtime_error("Strength statement not valid.");
-    if (syntax->delay) throw std::runtime_error("Delay statement not valid.");
+    if (!syntax) throw CompilerError("Null pointer");
+    if (syntax->strength) throw CompilerError("Strength statement not valid.");
+    if (syntax->delay) throw CompilerError("Delay statement not valid.");
 
     ctx.is_sequential = false;
 
     for (const auto* assignExpr : syntax->assignments) {
         if (!assignExpr->isKind(SyntaxKind::AssignmentExpression)) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Expected assignment expression, got: " +
                 std::string(toString(assignExpr->kind)));
         }
@@ -680,7 +730,7 @@ void resolveExpressionStatementInPlace(
     const auto expectedKind = ctx.is_sequential ? SyntaxKind::NonblockingAssignmentExpression :
                                                   SyntaxKind::AssignmentExpression;
     if (expr->kind != expectedKind){
-        throw std::runtime_error(
+        throw CompilerError(
         "Can only process assign expression. Current: " + std::string(toString(expr->kind)));
     }
     const auto& assignExpr = expr->as<slang::syntax::BinaryExpressionSyntax>();
@@ -692,10 +742,10 @@ void resolveConditionalStatementInPlace(
         ResolutionContext& ctx){
     const auto& predicate = conditionalStatement->predicate;
     if (conditionalStatement->uniqueOrPriority){
-        throw std::runtime_error("Unique/priority not supported on if");
+        throw CompilerError("Unique/priority not supported on if");
     }
     if (predicate->conditions.size()>1){
-        throw std::runtime_error("Support for single predicate on if");
+        throw CompilerError("Support for single predicate on if");
     }
     const auto& predicateExpr = predicate->conditions[0]->expr;
 
@@ -789,18 +839,19 @@ void resolveConditionalStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw std::runtime_error("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName);
                 }
                 oldDriver = qNode;
             } else {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Signal is not assigned in IF branch but not other: " + outName);
             }
         }
 
         if (oldDriver != newDriver) {
             // Add the mux!
-            const auto& muxOut = ctx.graph.mux(conditionNode, newDriver, oldDriver);
+            auto* muxOut = ctx.graph.mux(conditionNode, newDriver, oldDriver);
+            muxOut->loc = resolveSourceLoc(*conditionalStatement, ctx.sm);
             connectSignalOrOutput(outName, muxOut);
         }
     }
@@ -835,11 +886,11 @@ void resolveConditionalStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw std::runtime_error("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName);
                 }
                 oldDriver = qNode;
             } else {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Signal '" + elseName + "' is only assigned in ELSE branch, not supported");
             }
         }
@@ -847,7 +898,8 @@ void resolveConditionalStatementInPlace(
         // Signal is in ELSE and OLD but not IF → add MUX
         // TRUE (condition true, IF branch): use oldDriver (IF didn't change it)
         // FALSE (condition false, ELSE branch): use elseDriver
-        auto muxOut = ctx.graph.mux(conditionNode, oldDriver, elseDriver);
+        auto* muxOut = ctx.graph.mux(conditionNode, oldDriver, elseDriver);
+        muxOut->loc = resolveSourceLoc(*conditionalStatement, ctx.sm);
         connectSignalOrOutput(elseName, muxOut);
     }
 }
@@ -857,16 +909,16 @@ void resolveCaseStatementInPlace(
         ResolutionContext& ctx) {
 
     if (caseStatement->uniqueOrPriority) {
-        throw std::runtime_error("unique/priority case not supported");
+        throw CompilerError("unique/priority case not supported");
     }
 
     // Only support basic 'case', not casez/casex
     auto caseKeyword = caseStatement->caseKeyword.kind;
     if (caseKeyword == slang::parsing::TokenKind::CaseZKeyword) {
-        throw std::runtime_error("casez not supported");
+        throw CompilerError("casez not supported");
     }
     if (caseKeyword == slang::parsing::TokenKind::CaseXKeyword) {
-        throw std::runtime_error("casex not supported");
+        throw CompilerError("casex not supported");
     }
 
     // Build the selector expression node
@@ -926,12 +978,13 @@ void resolveCaseStatementInPlace(
             const auto& caseItem = item->as<StandardCaseItemSyntax>();
 
             if (caseItem.expressions.size() != 1) {
-                throw std::runtime_error("Multiple expressions per case item not yet supported");
+                throw CompilerError("Multiple expressions per case item not yet supported");
             }
 
             // Build condition: selector == case_value
             auto caseValueNode = buildExprDFG(caseItem.expressions[0], ctx);
-            auto conditionNode = ctx.graph.eq(selectorNode, caseValueNode);
+            auto* conditionNode = ctx.graph.eq(selectorNode, caseValueNode);
+            conditionNode->loc = resolveSourceLoc(*caseStatement, ctx.sm);
 
             // Reset to fallback state before processing
             restoreDrivers(fallbackDrivers);
@@ -940,7 +993,7 @@ void resolveCaseStatementInPlace(
             resolveStatementInPlace(&caseItem.clause->as<StatementSyntax>(), ctx);
             normalCases.push_back({conditionNode, getDrivers(ctx.graph)});
         } else {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported case item kind: " + std::string(toString(item->kind)));
         }
     }
@@ -1001,13 +1054,13 @@ void resolveCaseStatementInPlace(
                 // Look up the .q signal node
                 DFGNode* qNode = ctx.graph.lookupSignal(qName);
                 if (!qNode) {
-                    throw std::runtime_error("Could not find .q signal: " + qName);
+                    throw CompilerError("Could not find .q signal: " + qName);
                 }
                 caseValue = qNode;
                 // Also set defaultValue so subsequent branches use the same node
                 defaultValue = caseValue;
             } else {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback");
             }
 
@@ -1016,13 +1069,18 @@ void resolveCaseStatementInPlace(
         }
 
         DFGNode* result;
+        auto caseLoc = resolveSourceLoc(*caseStatement, ctx.sm);
         if (defaultValue) {
             // Compute default selector: none of the normal cases matched
             DFGNode* selectorSum = selectors[0];
             for (size_t i = 1; i < selectors.size(); ++i) {
                 selectorSum = ctx.graph.add(selectorSum, selectors[i]);
+                selectorSum->loc = caseLoc;
             }
-            DFGNode* defaultSel = ctx.graph.eq(selectorSum, ctx.graph.constant(0));
+            auto* zeroNode = ctx.graph.constant(0);
+            zeroNode->loc = caseLoc;
+            DFGNode* defaultSel = ctx.graph.eq(selectorSum, zeroNode);
+            defaultSel->loc = caseLoc;
             selectors.push_back(defaultSel);
             dataValues.push_back(defaultValue);
         }
@@ -1031,6 +1089,7 @@ void resolveCaseStatementInPlace(
             result = dataValues[0];
         } else {
             result = ctx.graph.muxN(selectors, dataValues);
+            result->loc = caseLoc;
         }
 
         connectSignalOrOutput(signalName, result);
@@ -1074,7 +1133,7 @@ void resolveStatementInPlace(
         }
 
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "We expect all statements to be expressions. Current: " + std::string(toString(statement->kind)));
     }
 }
@@ -1085,7 +1144,7 @@ void resolveProceduralComboInPlace(
         ResolutionContext& ctx
 ){
     if (statement->kind != SyntaxKind::SequentialBlockStatement){
-        throw std::runtime_error(
+        throw CompilerError(
         "Statement not synthesizable: " + std::string(toString(statement->kind)));
     }
     // always_comb is not sequential
@@ -1098,7 +1157,7 @@ std::vector<asyncTrigger_t> extractSignalEventExpression(
         std::vector<asyncTrigger_t> triggers
 ){
     if (sigEventExpr.expr->kind != SyntaxKind::IdentifierName) {
-        throw std::runtime_error(
+        throw CompilerError(
                 "Expression not supported on sensitibility list");
     }
     const auto& idExpr = sigEventExpr.expr->as<IdentifierNameSyntax>();
@@ -1109,7 +1168,7 @@ std::vector<asyncTrigger_t> extractSignalEventExpression(
     } else if (sigEventExpr.edge.valueText() == "negedge"){
         edge = edge_t::NEGEDGE;
     } else{
-        throw std::runtime_error(
+        throw CompilerError(
                 "Edge must be posedge or negedge.");
     }
     triggers.push_back({edge, name});
@@ -1132,14 +1191,14 @@ std::vector<asyncTrigger_t> extractAsyncTriggers(
             const auto& rightExpr = binaryEventExpr.right;
             const auto& token = binaryEventExpr.operatorToken;
             if (token.valueText() != "or"){
-                throw std::runtime_error("Only OR supported in event list.");
+                throw CompilerError("Only OR supported in event list.");
             }
             triggers = extractAsyncTriggers(leftExpr, triggers);
             triggers = extractAsyncTriggers(rightExpr, triggers);
             return triggers;
         }
         default:
-            throw std::runtime_error("Reached invalid code region.");
+            throw CompilerError("Reached invalid code region.");
     }
 }
 // Resolve procedural timing block in-place on shared DFG
@@ -1165,7 +1224,7 @@ void resolveProceduralTimingInPlace(
             break;
         }
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "Not supported timing control: " + std::string(toString(timingControl->kind)));
 
     }
@@ -1299,19 +1358,19 @@ ParameterContext parseParameterValueAssignment(
     ParameterContext result;
     for (const auto* param : paramAssign.parameters) {
         if (param->kind == SyntaxKind::OrderedParamAssignment) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Ordered parameter assignments not yet supported in instantiation");
         } else if (param->kind == SyntaxKind::NamedParamAssignment) {
             const auto& named = param->as<NamedParamAssignmentSyntax>();
             std::string paramName(named.name.valueText());
             if (!named.expr) {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Named parameter '" + paramName + "' has no value");
             }
             int64_t value = evaluateConstantExpr(named.expr, evalCtx);
             result.values[paramName] = static_cast<int>(value);
         } else {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported parameter assignment kind: " +
                 std::string(toString(param->kind)));
         }
@@ -1324,12 +1383,12 @@ ParameterContext parseParameterValueAssignment(
 // Port connection expressions are: PropertyExpr -> SimplePropertyExpr -> SimpleSequenceExpr -> Expression
 const ExpressionSyntax* extractPortExpr(const PropertyExprSyntax& propExpr) {
     if (propExpr.kind != SyntaxKind::SimplePropertyExpr) {
-        throw std::runtime_error(
+        throw CompilerError(
             "Unsupported port connection expression kind: " + std::string(toString(propExpr.kind)));
     }
     auto& simpleProp = propExpr.as<SimplePropertyExprSyntax>();
     if (simpleProp.expr->kind != SyntaxKind::SimpleSequenceExpr) {
-        throw std::runtime_error(
+        throw CompilerError(
             "Unsupported port connection expression kind: " + std::string(toString(simpleProp.expr->kind)));
     }
     auto& simpleSeq = simpleProp.expr->as<SimpleSequenceExprSyntax>();
@@ -1360,12 +1419,12 @@ void resolveNamedPortConnection(
     // Check if input
     if (subInputNames.contains(portName)) {
         if (!named.expr) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Input port '" + portName + "' requires a connection expression");
         }
         auto* expr = extractPortExpr(*named.expr);
         if (expr->kind != SyntaxKind::IdentifierName) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Only simple identifier expressions supported for input port connections");
         }
         const std::string name(expr->as<IdentifierNameSyntax>().identifier.valueText());
@@ -1373,19 +1432,19 @@ void resolveNamedPortConnection(
         moduleNode->in.push_back(driver);
     } else if (subOutputNames.contains(portName)) {
         if (!named.expr) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Output port '" + portName + "' requires a connection expression");
         }
         auto* expr = extractPortExpr(*named.expr);
         if (expr->kind != SyntaxKind::IdentifierName) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Only simple identifier expressions supported for output port connections");
         }
         std::string parentSignalName(expr->as<IdentifierNameSyntax>().identifier.valueText());
         connectModuleOutput(graph, moduleNode,
                             parentSignalName, subOutputIndex.at(portName));
     } else {
-        throw std::runtime_error(
+        throw CompilerError(
             "Port name '" + portName + "' not found in submodule inputs or outputs");
     }
 }
@@ -1423,7 +1482,7 @@ void resolvePortConnection(
             resolveWildcardPortConnection(graph, moduleNode, resolvedSub);
             break;
         default:
-            throw std::runtime_error(
+            throw CompilerError(
                 "Unsupported port connection kind: " + std::string(toString(conn->kind)));
     }
 }
@@ -1431,7 +1490,8 @@ void resolvePortConnection(
 } // anonymous namespace
 
 ResolvedModule resolveModule(const UnresolvedModule& unresolved, const ParameterContext& topCtx,
-                             const ModuleLookup& moduleLookup) {
+                             const ModuleLookup& moduleLookup,
+                             const slang::SourceManager& sourceManager) {
     ResolvedModule resolved;
     resolved.name = unresolved.name;
     auto localCtx = std::make_unique<ParameterContext>(topCtx);
@@ -1512,7 +1572,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // === Resolve all blocks into the shared graph ===
     // Create resolution context
-    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, false, {}};
+    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, sourceManager, false, {}};
 
     for (const auto& block : unresolved.proceduralComboBlocks) {
         resolveProceduralComboInPlace(block, resCtx);
@@ -1531,7 +1591,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         std::string submoduleName(moduleInst->type.valueText());
         auto it = moduleLookup.find(submoduleName);
         if (it == moduleLookup.end()) {
-            throw std::runtime_error(
+            throw CompilerError(
                 "Submodule '" + submoduleName + "' not found in module lookup");
         }
 
@@ -1541,7 +1601,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
         }
 
         // Resolve the submodule to get its port information
-        auto resolvedSub = resolveModule(*it->second, instCtx, moduleLookup);
+        auto resolvedSub = resolveModule(*it->second, instCtx, moduleLookup, sourceManager);
 
         // Build sets of input/output port names for the submodule
         std::set<std::string> subInputNames, subOutputNames;
@@ -1580,7 +1640,8 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 }
 
 std::vector<ResolvedModule> resolveModules(
-    const std::vector<std::unique_ptr<UnresolvedModule>>& modules) {
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules,
+    const slang::SourceManager& sourceManager) {
 
     // Build lookup table so resolveModule can find submodules by name
     ModuleLookup moduleLookup;
@@ -1592,7 +1653,7 @@ std::vector<ResolvedModule> resolveModules(
     ParameterContext emptyCtx;  // Use default/empty context for now
 
     for (const auto& module : modules) {
-        resolved.push_back(resolveModule(*module, emptyCtx, moduleLookup));
+        resolved.push_back(resolveModule(*module, emptyCtx, moduleLookup, sourceManager));
     }
 
     return resolved;

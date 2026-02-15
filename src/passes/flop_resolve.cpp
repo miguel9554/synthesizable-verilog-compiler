@@ -1,5 +1,6 @@
 #include "passes/flop_resolve.h"
 #include "ir/dfg.h"
+#include "util/source_loc.h"
 
 #include <algorithm>
 #include <format>
@@ -66,7 +67,7 @@ bool extract_reset(
     bool has_reset;
 
     if (dNodeDriver->op != DFGOp::MUX) {
-        throw std::runtime_error("Reset MUX not present.");
+        throw CompilerError("Reset MUX not present.", dNodeDriver->loc);
     }
     auto* mux_sel = dNodeDriver->in[0].node;
     auto* mux_true = dNodeDriver->in[1].node;
@@ -83,7 +84,7 @@ bool extract_reset(
     }
 
     if (expectedResetNode->op != DFGOp::INPUT) {
-        throw std::runtime_error("Reset MUX NOT driven by input.");
+        throw CompilerError("Reset MUX NOT driven by input.", dNodeDriver->loc);
     }
 
     const std::string& reset_name = expectedResetNode->name;
@@ -94,26 +95,26 @@ bool extract_reset(
         reset = triggers[1];
         clock = triggers[0];
     } else {
-        throw std::runtime_error("Reset not present in sensitivity list.");
+        throw CompilerError("Reset not present in sensitivity list.", dNodeDriver->loc);
     }
 
     if (reset.edge == edge_t::NEGEDGE && !is_negated) {
-        throw std::runtime_error("NEGEDGE reset should have NEG polarity.");
+        throw CompilerError("NEGEDGE reset should have NEG polarity.", dNodeDriver->loc);
     }
     if (reset.edge == edge_t::POSEDGE && is_negated) {
-        throw std::runtime_error("POSEDGE reset should have PLUS polarity.");
+        throw CompilerError("POSEDGE reset should have PLUS polarity.", dNodeDriver->loc);
     }
 
     if (mux_true->op == DFGOp::SIGNAL) {
         if (mux_true->name != flop_name + ".q") {
-            throw std::runtime_error("Unsupported SIGNAL for reset MUX TRUE: " + mux_true->name);
+            throw CompilerError("Unsupported SIGNAL for reset MUX TRUE: " + mux_true->name, dNodeDriver->loc);
         }
         has_reset = false;
     } else if (mux_true->op == DFGOp::CONST) {
         has_reset = true;
         reset_value = std::get<int64_t>(mux_true->data);
     } else {
-        throw std::runtime_error("Unsupported MUX TRUE branch for reset: " + mux_true->str());
+        throw CompilerError("Unsupported MUX TRUE branch for reset: " + mux_true->str(), dNodeDriver->loc);
     }
 
     functionalLogic = mux_else;
@@ -134,8 +135,8 @@ FlopInfo extractFlopClockAndReset(
     const auto& triggers = resolved.flopsTriggers.at(flopIn.name);
 
     if (dNode->in.size() != 1) {
-        throw std::runtime_error(std::format(
-            "Flop must have single driver: {} has {}", dName, dNode->in.size()));
+        throw CompilerError(std::format(
+            "Flop must have single driver: {} has {}", dName, dNode->in.size()), dNode->loc);
     }
 
     asyncTrigger_t clock;
@@ -152,8 +153,8 @@ FlopInfo extractFlopClockAndReset(
             dNodeDriver, triggers, flopIn.name,
             reset, clock, reset_value, functionalLogic);
     } else {
-        throw std::runtime_error(std::format(
-            "Trigger size not supported: {}", triggers.size()));
+        throw CompilerError(std::format(
+            "Trigger size not supported: {}", triggers.size()), dNode->loc);
     }
 
     flop.clock = clock;
@@ -185,12 +186,12 @@ void check_functional_logic_no_clock_reset(
 
         if (current->op == DFGOp::INPUT) {
             if (current->name == clock.name) {
-                throw std::runtime_error(
-                    "Functional logic uses clock signal: " + clock.name);
+                throw CompilerError(
+                    "Functional logic uses clock signal: " + clock.name, current->loc);
             }
             if (reset && current->name == reset->name) {
-                throw std::runtime_error(
-                    "Functional logic uses reset signal: " + reset->name);
+                throw CompilerError(
+                    "Functional logic uses reset signal: " + reset->name, current->loc);
             }
         }
 

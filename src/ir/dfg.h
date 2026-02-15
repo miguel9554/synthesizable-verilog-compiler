@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ir/types.h"
+#include "util/source_loc.h"
 
 #include <algorithm>
 #include <format>
@@ -165,6 +166,9 @@ struct DFGNode {
     // Type info (width, signedness) — set on leaf nodes, propagated by type pass
     std::optional<ResolvedType> type;
 
+    // Source location in the original Verilog (set during elaboration)
+    std::optional<SourceLoc> loc;
+
     // Multi-output support: empty = single unnamed output
     std::vector<std::string> output_names;
 
@@ -233,7 +237,7 @@ struct DFG {
         auto result = inputs.insert({name, nodes.back().get()});
         if (!result.second) {
             // Key already exists - insertion failed
-            throw std::runtime_error(std::format("Input {} already exists", name));
+            throw CompilerError(std::format("Input {} already exists", name));
         }
         return nodes.back().get();
     }
@@ -256,7 +260,7 @@ struct DFG {
         nodes.push_back(std::make_unique<DFGNode>(DFGOp::SIGNAL, name));
         auto result = signals.insert({name, nodes.back().get()});
         if (!result.second) {
-            throw std::runtime_error(std::format("Signal {} already exists", name));
+            throw CompilerError(std::format("Signal {} already exists", name));
         }
         return nodes.back().get();
     }
@@ -292,7 +296,7 @@ struct DFG {
     void connectOutput(const std::string& name, DFGOutput driver) {
         auto it = outputs.find(name);
         if (it == outputs.end()) {
-            throw std::runtime_error(std::format("Output {} not found", name));
+            throw CompilerError(std::format("Output {} not found", name));
         }
         it->second->in = {driver};
     }
@@ -301,7 +305,7 @@ struct DFG {
     void connectSignal(const std::string& name, DFGOutput driver) {
         auto it = signals.find(name);
         if (it == signals.end()) {
-            throw std::runtime_error(std::format("Signal {} not found", name));
+            throw CompilerError(std::format("Signal {} not found", name));
         }
         it->second->in = {driver};
     }
@@ -313,7 +317,7 @@ struct DFG {
         nodes.push_back(std::move(n));
         auto result = outputs.insert({name, nodes.back().get()});
         if (!result.second) {
-            if (!rename) throw std::runtime_error(std::format("Output {} already exists", name));
+            if (!rename) throw CompilerError(std::format("Output {} already exists", name));
             // Remove old output node from the nodes vector
             auto oldNode = outputs[name];
             auto it = std::find_if(nodes.begin(), nodes.end(),
@@ -478,10 +482,10 @@ struct DFG {
                   const std::vector<DFGNode*>& data,
                   const std::string& name = "") {
         if (selectors.size() != data.size()) {
-            throw std::runtime_error("muxN: selectors and data must have same size");
+            throw CompilerError("muxN: selectors and data must have same size");
         }
         if (selectors.empty()) {
-            throw std::runtime_error("muxN: must have at least one input");
+            throw CompilerError("muxN: must have at least one input");
         }
         auto n = name.empty()
             ? std::make_unique<DFGNode>(DFGOp::MUX_N)
@@ -569,20 +573,20 @@ struct DFG {
             int actual = static_cast<int>(node->in.size());
 
             if (expected >= 0 && actual != expected) {
-                throw std::runtime_error(std::format(
+                throw CompilerError(std::format(
                     "DFG validate: {} expects {} inputs, has {}",
                     node->str(), expected, actual));
             }
 
             // Variable-count ops with specific constraints
             if (node->op == DFGOp::OUTPUT && actual > 1) {
-                throw std::runtime_error(std::format(
+                throw CompilerError(std::format(
                     "DFG validate: OUTPUT {} has {} inputs (expected 0 or 1)",
                     node->name, actual));
             }
             if (node->op == DFGOp::MUX_N) {
                 if (actual < 2 || actual % 2 != 0) {
-                    throw std::runtime_error(std::format(
+                    throw CompilerError(std::format(
                         "DFG validate: MUX_N {} has {} inputs (expected even, >= 2)",
                         node->str(), actual));
                 }

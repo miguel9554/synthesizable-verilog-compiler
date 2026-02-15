@@ -79,6 +79,9 @@ std::string DFG::toDot(const std::string& graphName) const {
             ss << "\\n[" << node->type->width;
             ss << (node->type->isSigned() ? "s" : "u") << "]";
         }
+        if (node->loc) {
+            ss << "\\n" << node->loc->file << ":" << node->loc->line;
+        }
         ss << "\"];\n";
     }
 
@@ -173,6 +176,11 @@ std::string DFG::toJson(int indent) const {
         if (node->hasType()) {
             ss << indentStr(indent + 3) << "\"type\": {\"width\": " << node->type->width
                << ", \"signed\": " << (node->type->isSigned() ? "true" : "false") << "},\n";
+        }
+
+        // Add source location if available
+        if (node->loc) {
+            ss << indentStr(indent + 3) << "\"loc\": \"" << node->loc->str() << "\",\n";
         }
 
         // Add inputs

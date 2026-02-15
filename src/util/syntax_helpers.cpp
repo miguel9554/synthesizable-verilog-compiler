@@ -1,5 +1,7 @@
 #include "util/syntax_helpers.h"
 
+#include "util/source_loc.h"
+
 #include <stdexcept>
 #include <vector>
 
@@ -19,7 +21,7 @@ UnresolvedType extractDataType(const DataTypeSyntax& syntax) {
 
 std::vector<UnresolvedParam> extractParameter(const ParameterDeclarationBaseSyntax* declaration, std::vector<UnresolvedParam> params) {
     if (declaration->kind == SyntaxKind::TypeParameterDeclaration) {
-        throw std::runtime_error("Can't parse Type parameters");
+        throw CompilerError("Can't parse Type parameters");
     }
     auto& paramDeclaration = declaration->as<ParameterDeclarationSyntax>();
     UnresolvedType typeInfo = extractDataType(*paramDeclaration.type);
@@ -44,8 +46,8 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
     UnresolvedModule info;
     info.name = std::string(header.name.valueText());
 
-    if (header.lifetime) throw std::runtime_error("Can't parse lifetime");
-    if (!header.imports.empty()) throw std::runtime_error("Can't parse imports");
+    if (header.lifetime) throw CompilerError("Can't parse lifetime");
+    if (!header.imports.empty()) throw CompilerError("Can't parse imports");
 
     // Extract parameters
     if (header.parameters) {
@@ -57,13 +59,13 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
     // Extract ports
     if (header.ports) {
         if (header.ports->kind != SyntaxKind::AnsiPortList) {
-            throw std::runtime_error("Only ANSI port lists supported");
+            throw CompilerError("Only ANSI port lists supported");
         }
 
         auto& ansiPorts = header.ports->as<AnsiPortListSyntax>();
         for (auto* member : ansiPorts.ports) {
             if (member->kind != SyntaxKind::ImplicitAnsiPort) {
-                throw std::runtime_error("Only implicit ANSI ports supported");
+                throw CompilerError("Only implicit ANSI ports supported");
             }
 
             auto& port = member->as<ImplicitAnsiPortSyntax>();
@@ -71,7 +73,7 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
 
             // Get direction and dataType from header
             if (port.header->kind == SyntaxKind::InterfacePortHeader) {
-                throw std::runtime_error("Can't parse interface ports.");
+                throw CompilerError("Can't parse interface ports.");
             }
             else if (port.header->kind == SyntaxKind::VariablePortHeader) {
                 auto& varHeader = port.header->as<VariablePortHeaderSyntax>();
@@ -89,7 +91,7 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
                 } else if (dir == TokenKind::OutputKeyword) {
                     info.outputs.push_back(portInfo);
                 } else {
-                    throw std::runtime_error("Unsupported port direction");
+                    throw CompilerError("Unsupported port direction");
                 }
             }
             else if (port.header->kind == SyntaxKind::NetPortHeader) {
@@ -108,7 +110,7 @@ UnresolvedModule extractModuleHeader(const ModuleHeaderSyntax& header) {
                 } else if (dir == TokenKind::OutputKeyword) {
                     info.outputs.push_back(portInfo);
                 } else {
-                    throw std::runtime_error("Unsupported port direction");
+                    throw CompilerError("Unsupported port direction");
                 }
             }
         }

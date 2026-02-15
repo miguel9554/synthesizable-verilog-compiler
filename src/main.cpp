@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
         std::cout << "========================================" << std::endl;
         std::cout << "Performing elaboration..." << std::endl;
         std::cout << "========================================" << std::endl;
-        auto resolvedModules = resolveModules(modules);
+        auto resolvedModules = resolveModules(modules, tree->sourceManager());
 
         // Optimization passes
         for (auto& module : resolvedModules) {

@@ -1,5 +1,7 @@
 #include "passes/constant_fold.h"
 
+#include "util/source_loc.h"
+
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -87,11 +89,12 @@ static std::vector<DFGNode*> buildPostOrder(DFG& graph) {
 // Integer power helper
 // ---------------------------------------------------------------------------
 
-static int64_t intPow(int64_t base, int64_t exp) {
+static int64_t intPow(int64_t base, int64_t exp,
+                      std::optional<SourceLoc> loc = std::nullopt) {
     if (exp < 0)
-        throw std::runtime_error("Constant fold: negative exponent not supported");
+        throw CompilerError("Constant fold: negative exponent not supported", loc);
     if (base == 0 && exp == 0)
-        throw std::runtime_error("Constant fold: 0**0 is undefined");
+        throw CompilerError("Constant fold: 0**0 is undefined", loc);
     int64_t result = 1;
     for (int64_t i = 0; i < exp; i++) {
         result *= base;
@@ -130,7 +133,7 @@ static bool tryConstantFold(DFGNode* node) {
         case DFGOp::DIV: {
             int64_t divisor = getConst(node->in[1].node);
             if (divisor == 0)
-                throw std::runtime_error("Constant fold: division by zero");
+                throw CompilerError("Constant fold: division by zero", node->loc);
             result = getConst(node->in[0].node) / divisor;
             break;
         }
@@ -156,7 +159,7 @@ static bool tryConstantFold(DFGNode* node) {
             result = getConst(node->in[0].node) >> getConst(node->in[1].node);
             break;
         case DFGOp::POWER:
-            result = intPow(getConst(node->in[0].node), getConst(node->in[1].node));
+            result = intPow(getConst(node->in[0].node), getConst(node->in[1].node), node->loc);
             break;
         case DFGOp::MUX: {
             int64_t sel = getConst(node->in[0].node);
@@ -175,7 +178,7 @@ static bool tryConstantFold(DFGNode* node) {
                 }
             }
             if (selectedIdx < 0)
-                throw std::runtime_error("Constant fold: MUX_N with no active selector");
+                throw CompilerError("Constant fold: MUX_N with no active selector", node->loc);
             result = getConst(node->in[n + selectedIdx].node);
             break;
         }
@@ -328,7 +331,7 @@ static bool tryAlgebraicSimplify(DFG& graph, DFGNode* node) {
             auto* rhs = node->in[1].node;
             // Const-zero divisor -> throw
             if (isConst(rhs) && getConst(rhs) == 0) {
-                throw std::runtime_error("Constant fold: division by zero");
+                throw CompilerError("Constant fold: division by zero", node->loc);
             }
             // x / 1 -> x
             if (isConst(rhs) && getConst(rhs) == 1) {
@@ -419,7 +422,7 @@ static bool tryAlgebraicSimplify(DFG& graph, DFGNode* node) {
             // x ** 0 -> 1 (throw if x is const 0)
             if (isConst(rhs) && getConst(rhs) == 0) {
                 if (isConst(lhs) && getConst(lhs) == 0)
-                    throw std::runtime_error("Constant fold: 0**0 is undefined");
+                    throw CompilerError("Constant fold: 0**0 is undefined", node->loc);
                 makeConst(node, 1);
                 return true;
             }

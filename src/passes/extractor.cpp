@@ -1,6 +1,8 @@
 #include "passes/extractor.h"
 #include "util/syntax_helpers.h"
 
+#include "util/source_loc.h"
+
 #include <algorithm>
 #include <memory>
 #include <set>
@@ -51,7 +53,7 @@ private:
                 break;
             }
             default:
-                throw std::runtime_error("Not supported in NB assign: " + std::string(toString(expr->kind)));
+                throw CompilerError("Not supported in NB assign: " + std::string(toString(expr->kind)));
         }
     }
 };
@@ -103,7 +105,7 @@ public:
         module->inputs = std::move(headerInfo.inputs);
         module->outputs = std::move(headerInfo.outputs);
 
-        if (node.blockName) throw std::runtime_error("Can't parse blockName");
+        if (node.blockName) throw CompilerError("Can't parse blockName");
 
         // Set current module context
         currentModule = module.get();
@@ -113,7 +115,7 @@ public:
             if (isInList(member->kind, allowedMembers)) {
                 member->visit(*this);
             } else {
-                throw std::runtime_error(
+                throw CompilerError(
                     "Disallowed module member: " + std::string(toString(member->kind))
                 );
             }
@@ -136,7 +138,7 @@ public:
                                        [&](const auto& o) { return o.name == flopName; });
 
             if (sigIt == currentModule->signals.end() && outIt == currentModule->outputs.end()) {
-                throw std::runtime_error("Flop '" + flopName + "' not found in signals or outputs");
+                throw CompilerError("Flop '" + flopName + "' not found in signals or outputs");
             }
 
             // Get the flop's type info from whichever list it was found in
@@ -177,11 +179,11 @@ public:
     }
 
     void handle(const NetDeclarationSyntax& node) {
-        if (!currentModule) throw std::runtime_error(
+        if (!currentModule) throw CompilerError(
                 "Net declaration block must be inside module.");
-        if (node.strength) throw std::runtime_error(
+        if (node.strength) throw CompilerError(
                 "Strength not allowed.");
-        if (node.delay) throw std::runtime_error(
+        if (node.delay) throw CompilerError(
                 "Delay not allowed.");
         // TODO we shold handle the expansionHint
         const auto type = extractDataType(*node.type);
@@ -203,7 +205,7 @@ public:
     }
 
     void handle(const DataDeclarationSyntax& node) {
-        if (!currentModule) throw std::runtime_error(
+        if (!currentModule) throw CompilerError(
                 "Variable declaration block must be inside module.");
         const auto type = extractDataType(*node.type);
         std::vector<UnresolvedSignal> signals;
@@ -220,19 +222,19 @@ public:
     }
 
     void handle(const HierarchyInstantiationSyntax& node) {
-        if (!currentModule) throw std::runtime_error(
+        if (!currentModule) throw CompilerError(
                 "Continuous assign must be inside module.");
         currentModule->hierarchyInstantiation.push_back(&node);
     }
 
     void handle(const ContinuousAssignSyntax& node) {
-        if (!currentModule) throw std::runtime_error(
+        if (!currentModule) throw CompilerError(
                 "Continuous assign must be inside module.");
         currentModule->assignStatements.push_back(&node);
     }
 
     void handle(const ProceduralBlockSyntax& node) {
-        if (!currentModule) throw std::runtime_error(
+        if (!currentModule) throw CompilerError(
                 "Procedural block must be inside module.");
 
         // Extract sensitivity list based on block kind
@@ -244,7 +246,7 @@ public:
                     auto& timingControl = statement->as<TimingControlStatementSyntax>();
                     currentModule->proceduralTimingBlocks.push_back(&timingControl);
                 } else {
-                    throw std::runtime_error("Procedural block must have timing control.");
+                    throw CompilerError("Procedural block must have timing control.");
                 }
                 break;
              }
@@ -254,17 +256,17 @@ public:
                     currentModule->proceduralComboBlocks.push_back(statement);
 
                 } else {
-                    throw std::runtime_error(
+                    throw CompilerError(
                     "Not synthesizable statement: " + std::string(toString(statement->kind)));
                 }
                 break;
              }
             case SyntaxKind::AlwaysLatchBlock:
-                throw std::runtime_error("Latch not allowed.");
+                throw CompilerError("Latch not allowed.");
             case SyntaxKind::InitialBlock:
-                throw std::runtime_error("Initial block not synthesizable");
+                throw CompilerError("Initial block not synthesizable");
             default:
-                throw std::runtime_error("Unknown procedural block kind");
+                throw CompilerError("Unknown procedural block kind");
         }
 
         visitDefault(node);
