@@ -64,29 +64,19 @@ bool extract_reset(
     int& reset_value,
     DFGNode*& functionalLogic)
 {
-    bool has_reset;
-
+    // Check if MUX, if not, no reset
     if (dNodeDriver->op != DFGOp::MUX) {
-        throw CompilerError("Reset MUX not present.", dNodeDriver->loc);
+        return false;
     }
+
     auto* mux_sel = dNodeDriver->in[0].node;
     auto* mux_true = dNodeDriver->in[1].node;
     auto* mux_else = dNodeDriver->in[2].node;
-    bool is_negated = false;
-    DFGNode* expectedResetNode;
+    DFGNode* expectedResetNode = mux_sel;
+    DFGNode* expectedResetAssign;
 
-    if (mux_sel->op == DFGOp::BITWISE_NOT ||
-            mux_sel->op == DFGOp::LOGICAL_NOT) {
-        is_negated = true;
-        expectedResetNode = mux_sel->in[0].node;
-    } else {
-        expectedResetNode = mux_sel;
-    }
-
-    if (expectedResetNode->op != DFGOp::INPUT) {
-        throw CompilerError("Reset MUX NOT driven by input.", dNodeDriver->loc);
-    }
-
+    // Try to match selector to one of the triggers, which should be the reset. The other trigger is the clock.
+    // If no match, MUX should be a functional one.
     const std::string& reset_name = expectedResetNode->name;
     if (triggers[0].name == reset_name) {
         reset = triggers[0];
@@ -95,29 +85,28 @@ bool extract_reset(
         reset = triggers[1];
         clock = triggers[0];
     } else {
-        throw CompilerError("Reset not present in sensitivity list.", dNodeDriver->loc);
+        return false;
     }
 
-    if (reset.edge == edge_t::NEGEDGE && !is_negated) {
-        throw CompilerError("NEGEDGE reset should have NEG polarity.", dNodeDriver->loc);
-    }
-    if (reset.edge == edge_t::POSEDGE && is_negated) {
-        throw CompilerError("POSEDGE reset should have PLUS polarity.", dNodeDriver->loc);
-    }
+    // Assign the expected reset and functional branches
+    expectedResetAssign = reset.edge == edge_t::POSEDGE ? mux_true : mux_else;
+    functionalLogic = reset.edge == edge_t::POSEDGE ? mux_else : mux_true;
 
-    if (mux_true->op == DFGOp::SIGNAL) {
-        if (mux_true->name != flop_name + ".q") {
-            throw CompilerError("Unsupported SIGNAL for reset MUX TRUE: " + mux_true->name, dNodeDriver->loc);
+    // Check the reset assignment is either a CONSTANT (has reset) or its .q value (NO reset)
+    bool has_reset;
+    if (expectedResetAssign->op == DFGOp::CONST) {
+        reset_value = std::get<int64_t>(expectedResetAssign->data);
+        has_reset = true;
+    } else if (expectedResetAssign->op == DFGOp::SIGNAL) {
+        // Check the assignment is the .q value
+        if (expectedResetAssign->name != flop_name + ".q") {
+            throw CompilerError("Unsupported SIGNAL for reset MUX TRUE: " + expectedResetAssign->name, dNodeDriver->loc);
         }
         has_reset = false;
-    } else if (mux_true->op == DFGOp::CONST) {
-        has_reset = true;
-        reset_value = std::get<int64_t>(mux_true->data);
     } else {
-        throw CompilerError("Unsupported MUX TRUE branch for reset: " + mux_true->str(), dNodeDriver->loc);
+        throw CompilerError("Unsupported MUX TRUE branch for reset: " + expectedResetAssign->str(), dNodeDriver->loc);
     }
 
-    functionalLogic = mux_else;
     return has_reset;
 }
 
