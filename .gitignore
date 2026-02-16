@@ -35,3 +35,5 @@ __pycache__/
 *.pyo
 .cache
 .clangd
+debug_output/**
+scratchpad/syntax-analysis/**.txt
