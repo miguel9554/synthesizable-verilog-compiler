@@ -1,0 +1,7 @@
+Delay base=TimingControl multiKind=true
+Delay3 base=TimingControl
+OneStepDelay base=TimingControl
+EventControl base=TimingControl
+ImplicitEventControl base=TimingControl
+EventControlWithExpression base=TimingControl
+RepeatedEventControl base=TimingControl

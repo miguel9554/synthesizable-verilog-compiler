@@ -1,0 +1,58 @@
+SimplePropertyExpr base=PropertyExpr
+SequenceExpr expr
+
+ParenthesizedPropertyExpr base=PropertyExpr
+token openParen
+PropertyExpr expr
+SequenceMatchList? matchList
+token closeParen
+
+StrongWeakPropertyExpr base=PropertyExpr
+token keyword
+token openParen
+SequenceExpr expr
+token closeParen
+
+UnaryPropertyExpr base=PropertyExpr
+token op
+PropertyExpr expr
+
+UnarySelectPropertyExpr base=PropertyExpr
+token op
+token openBracket
+Selector? selector
+token closeBracket
+PropertyExpr expr
+
+BinaryPropertyExpr base=PropertyExpr multiKind=true
+PropertyExpr left
+token op
+PropertyExpr right
+
+ClockingPropertyExpr base=PropertyExpr
+TimingControl event
+PropertyExpr? expr
+
+AcceptOnPropertyExpr base=PropertyExpr
+token keyword
+token openParen
+Expression condition
+token closeParen
+PropertyExpr expr
+
+ConditionalPropertyExpr base=PropertyExpr
+token ifKeyword
+token openParen
+Expression condition
+token closeParen
+PropertyExpr expr
+ElsePropertyClause? elseClause
+
+CasePropertyExpr base=PropertyExpr
+token caseKeyword
+token openParen
+Expression expr
+token closeParen
+list<PropertyCaseItem> items
+token endcase
+

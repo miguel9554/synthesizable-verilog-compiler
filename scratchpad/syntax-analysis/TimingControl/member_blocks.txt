@@ -1,0 +1,39 @@
+Delay base=TimingControl multiKind=true
+token hash
+Expression delayValue
+
+Delay3 base=TimingControl
+token hash
+token openParen
+Expression delay1
+token comma1
+Expression? delay2
+token comma2
+Expression? delay3
+token closeParen
+
+OneStepDelay base=TimingControl
+token hash
+token oneStep
+
+EventControl base=TimingControl
+token at
+Expression eventName
+
+ImplicitEventControl base=TimingControl
+token at
+token openParen
+token star
+token closeParen
+
+EventControlWithExpression base=TimingControl
+token at
+EventExpression expr
+
+RepeatedEventControl base=TimingControl
+token repeat
+token openParen
+Expression expr
+token closeParen
+TimingControl? eventControl
+

@@ -1,0 +1,3 @@
+SignalEventExpression base=EventExpression
+BinaryEventExpression base=EventExpression
+ParenthesizedEventExpression base=EventExpression

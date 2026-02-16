@@ -1,0 +1,15 @@
+SignalEventExpression base=EventExpression
+token edge
+Expression expr
+IffEventClause? iffClause
+
+BinaryEventExpression base=EventExpression
+EventExpression left
+token operatorToken
+EventExpression right
+
+ParenthesizedEventExpression base=EventExpression
+token openParen
+EventExpression expr
+token closeParen
+
