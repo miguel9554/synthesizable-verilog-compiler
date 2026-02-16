@@ -40,8 +40,11 @@ add_subdirectory(external/yaml-cpp)
 # Collect all source files in src/
 file(GLOB_RECURSE PROJECT_SOURCES src/*.cpp)
 
+# VCD tracer library (compiled directly, not via its own CMake project)
+set(VCD_TRACER_SOURCES external/cpp-vcd-tracer/src/vcd_tracer.cpp)
+
 # Create the main executable
-add_executable(custom_hdl_compiler ${PROJECT_SOURCES})
+add_executable(custom_hdl_compiler ${PROJECT_SOURCES} ${VCD_TRACER_SOURCES})
 
 # Ensure no optimizations in Debug builds for reliable debugging (project only, not slang)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -62,6 +65,7 @@ target_include_directories(custom_hdl_compiler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/slang/external
     ${CMAKE_CURRENT_BINARY_DIR}/external/slang/source
     ${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-vcd-tracer/src
 )
 
 # Optional: Add install target

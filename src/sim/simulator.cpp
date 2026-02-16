@@ -383,6 +383,85 @@ void Simulator::writeOutputFiles() {
 }
 
 // ============================================================================
+// VCD tracing
+// ============================================================================
+
+void Simulator::setupVcd(std::ofstream& vcd_out) {
+    vcd_top_ = std::make_unique<vcd_tracer::top>(module_.name);
+
+    // Helper: get the bit width from a DFG node's type
+    auto getWidth = [](const DFGNode* node) -> unsigned int {
+        if (node->type.has_value() && node->type->width > 0)
+            return static_cast<unsigned int>(node->type->width);
+        return 64;
+    };
+
+    // Helper: elaborate a value<uint64_t> into a module with the correct runtime bit width.
+    // We wrap the module's add_fn to override the bit_size parameter that
+    // value<uint64_t>::elaborate() hardcodes to 64.
+    auto elaborateWithWidth = [](vcd_tracer::module& mod, vcd_tracer::value_base& var,
+                                 std::string_view name, unsigned int width) {
+        auto original_add_fn = mod.get_add_fn();
+        auto width_fn = [original_add_fn, width](
+                std::string_view var_name, std::string_view var_type,
+                unsigned int /*bit_size*/, vcd_tracer::scope_fn::dumper_fn fn)
+                -> vcd_tracer::value_context {
+            return original_add_fn(var_name, var_type, width, fn);
+        };
+        var.elaborate(width_fn, name);
+    };
+
+    {
+        vcd_tracer::module inputs_mod(vcd_top_->root, "inputs");
+        vcd_tracer::module signals_mod(vcd_top_->root, "signals");
+        vcd_tracer::module outputs_mod(vcd_top_->root, "outputs");
+
+        for (const auto& [name, node] : module_.dfg->inputs) {
+            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            elaborateWithWidth(inputs_mod, *v, name, getWidth(node));
+            vcd_values_[node] = std::move(v);
+        }
+
+        // Async inputs (clocks/resets) that don't have DFG input nodes
+        for (const auto& name : async_inputs_) {
+            if (module_.dfg->inputs.count(name)) continue;  // already added above
+            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            elaborateWithWidth(inputs_mod, *v, name, 1);
+            vcd_async_values_[name] = std::move(v);
+        }
+
+        for (const auto& [name, node] : module_.dfg->signals) {
+            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            elaborateWithWidth(signals_mod, *v, name, getWidth(node));
+            vcd_values_[node] = std::move(v);
+        }
+
+        for (const auto& [name, node] : module_.dfg->outputs) {
+            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            elaborateWithWidth(outputs_mod, *v, name, getWidth(node));
+            vcd_values_[node] = std::move(v);
+        }
+    }
+
+    vcd_top_->finalize_header(vcd_out,
+                              std::chrono::system_clock::from_time_t(0));
+}
+
+void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
+                                const std::map<std::string, int64_t>& async_values) {
+    for (auto& [node, vcd_val] : vcd_values_) {
+        vcd_val->set_uint64(static_cast<uint64_t>(values_.at(node)));
+    }
+    for (auto& [name, vcd_val] : vcd_async_values_) {
+        auto it = async_values.find(name);
+        if (it != async_values.end()) {
+            vcd_val->set_uint64(static_cast<uint64_t>(it->second));
+        }
+    }
+    vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{time_ns});
+}
+
+// ============================================================================
 // Constructor
 // ============================================================================
 
@@ -426,6 +505,16 @@ Simulator::Simulator(const ResolvedModule& module, const SimConfig& config)
 void Simulator::run() {
     std::cout << "Simulator: starting simulation for module '" << module_.name << "'" << std::endl;
 
+    // === VCD Setup ===
+    std::filesystem::create_directories(config_.output_dir);
+    std::string vcd_path = config_.output_dir + "/" + module_.name + ".vcd";
+    std::ofstream vcd_out(vcd_path);
+    if (!vcd_out.is_open()) {
+        throw CompilerError(std::format(
+            "Simulator: cannot open VCD output file '{}'", vcd_path));
+    }
+    setupVcd(vcd_out);
+
     // === Initialization (time 0) ===
 
     // 1. Set all CONST node values
@@ -462,15 +551,19 @@ void Simulator::run() {
     // 5. Evaluate all combinational logic
     evaluateCombinational();
 
-    std::cout << "Simulator: initialization complete, processing "
-              << timeline_.size() << " async events" << std::endl;
-
-    // === Main loop: process timeline in time-batches ===
-    // Track previous async values for edge detection
+    // Track async values for edge detection and VCD tracing
     std::map<std::string, int64_t> async_prev;
     for (const auto& name : async_inputs_) {
         async_prev[name] = 0;
     }
+
+    // VCD: trace initial state at time 0
+    updateVcdValues(vcd_out, 0, async_prev);
+
+    std::cout << "Simulator: initialization complete, processing "
+              << timeline_.size() << " async events" << std::endl;
+
+    // === Main loop: process timeline in time-batches ===
 
     size_t idx = 0;
     while (idx < timeline_.size()) {
@@ -568,19 +661,27 @@ void Simulator::run() {
         // 5. Re-evaluate combinational logic
         evaluateCombinational();
 
-        // 6. Record output values only on clock edges
+        // 6. VCD: trace all values at every time step
+        updateVcdValues(vcd_out, batch_time, async_prev);
+
+        // 7. Record output values only on clock edges (for text output)
         if (any_clock_edge) {
             recordOutputs();
         }
     }
 
-    // Write output files
+    // Finalize VCD trace
+    vcd_top_->finalize_trace(vcd_out);
+    vcd_out.close();
+
+    // Write text output files
     writeOutputFiles();
 
     std::cout << "Simulator: simulation complete. "
               << recorded_values_.begin()->second.size() << " cycles recorded."
               << std::endl;
     std::cout << "Simulator: output written to '" << config_.output_dir << "/'" << std::endl;
+    std::cout << "Simulator: VCD trace written to '" << vcd_path << "'" << std::endl;
 }
 
 } // namespace custom_hdl

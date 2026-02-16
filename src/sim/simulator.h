@@ -1,8 +1,10 @@
 #pragma once
 
 #include "ir/resolved.h"
+#include "vcd_tracer.hpp"
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -54,6 +56,16 @@ private:
 
     // Output recording
     std::map<std::string, std::vector<int64_t>> recorded_values_;
+
+    // VCD tracing
+    std::unique_ptr<vcd_tracer::top> vcd_top_;
+    std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<uint64_t>>> vcd_values_;
+    // Async-only signals (clocks/resets not in DFG) traced by name
+    std::map<std::string, std::unique_ptr<vcd_tracer::value<uint64_t>>> vcd_async_values_;
+
+    void setupVcd(std::ofstream& vcd_out);
+    void updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
+                         const std::map<std::string, int64_t>& async_values);
 
     void buildTopology();
     void buildTimeline();
