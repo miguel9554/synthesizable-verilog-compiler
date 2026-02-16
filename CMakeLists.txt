@@ -25,10 +25,15 @@ message(STATUS "Adding slang from external/slang")
 add_subdirectory(external/slang)
 
 # Collect all source files in src/
-file(GLOB PROJECT_SOURCES src/*.cpp)
+file(GLOB_RECURSE PROJECT_SOURCES src/*.cpp)
 
 # Create the main executable
 add_executable(custom_hdl_compiler ${PROJECT_SOURCES})
+
+# Ensure no optimizations in Debug builds for reliable debugging (project only, not slang)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(custom_hdl_compiler PRIVATE -O0)
+endif()
 
 # Link against slang
 target_link_libraries(custom_hdl_compiler PRIVATE
@@ -48,6 +53,9 @@ target_include_directories(custom_hdl_compiler PRIVATE
 install(TARGETS custom_hdl_compiler
     RUNTIME DESTINATION bin
 )
+
+# Scratchpad tools
+add_subdirectory(scratchpad)
 
 # Custom target to clean only project artifacts (not slang)
 add_custom_target(clean_project
