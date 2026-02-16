@@ -41,7 +41,11 @@ struct ResolvedSignalBase {
 };
 
 struct ResolvedSignal : ResolvedSignalBase{
-    ResolvedSignal* clock_domain;
+    ResolvedSignal* clock_domain = nullptr;
+    void print(std::ostream& os) const {
+        ResolvedSignalBase::print(os);
+        os << " domain=" << (clock_domain ? clock_domain->name : "UNRESOLVED");
+    }
 };
 
 struct ResolvedParam : ResolvedSignalBase {

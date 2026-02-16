@@ -1,0 +1,44 @@
+#include "passes/domain_resolve.h"
+
+#include <format>
+
+namespace custom_hdl {
+
+void resolveDomains(ResolvedModule& module) {
+    // Find the single clock among inputs
+    ResolvedSignal* clock = nullptr;
+    for (auto& input : module.inputs) {
+        if (input.type.kind == ResolvedTypeKind::Clock) {
+            if (clock) {
+                throw CompilerError(std::format(
+                    "Module '{}': multiple clocks found ('{}' and '{}'), "
+                    "only single-clock-domain modules are supported",
+                    module.name, clock->name, input.name));
+            }
+            clock = &input;
+        }
+    }
+
+    // Modules without flops have no clock-tagged inputs; nothing to resolve
+    if (!clock) {
+        if (!module.flops.empty()) {
+            throw CompilerError(std::format(
+                "Module '{}': has flops but no clock found among inputs", module.name));
+        }
+        return;
+    }
+
+    // Set clock_domain for all non-Clock, non-Reset signals
+    auto assign = [&](ResolvedSignal& sig) {
+        if (sig.type.kind != ResolvedTypeKind::Clock &&
+            sig.type.kind != ResolvedTypeKind::Reset) {
+            sig.clock_domain = clock;
+        }
+    };
+
+    for (auto& sig : module.inputs)  assign(sig);
+    for (auto& sig : module.outputs) assign(sig);
+    for (auto& sig : module.signals) assign(sig);
+}
+
+} // namespace custom_hdl

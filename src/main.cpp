@@ -13,6 +13,7 @@
 #include "passes/condition_normalization.h"
 #include "passes/dce.h"
 #include "passes/flop_resolve.h"
+#include "passes/domain_resolve.h"
 #include "passes/type_propagation.h"
 #include "util/debug.h"
 #include "util/source_loc.h"
@@ -170,6 +171,7 @@ int main(int argc, char** argv) {
             runPass(4, "dce", [&]{ eliminateDeadCode(*module.dfg); });
             module.dfg->validateNoOrphans();
             runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
+            runPass(6, "domain_resolve", [&]{ resolveDomains(module); });
         }
 
         std::cout << "----------------------------------------" << std::endl;
