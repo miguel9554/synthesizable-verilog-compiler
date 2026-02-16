@@ -5,8 +5,9 @@ CPP_SOURCES := $(shell find src -name '*.cpp')
 HEADER_SOURCES := $(shell find src -name '*.h')
 SOURCES := $(CPP_SOURCES) $(HEADER_SOURCES)
 BINARY := build/custom_hdl_compiler
-passes ?= 1
+passes ?= 2
 source ?= examples/test.v
+yaml ?= examples/sim_counter/config.yaml
 
 all: $(BINARY) run
 
@@ -17,6 +18,9 @@ build: $(BINARY)
 
 run: $(BINARY)
 	./$(BINARY) --passes $(passes) $(source)
+
+sim: $(BINARY)
+	./$(BINARY) $(source) --simulate $(yaml)
 
 # Debug targets
 debug-configure:
