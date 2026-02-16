@@ -6,7 +6,6 @@
 #include <format>
 #include <optional>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -156,13 +155,13 @@ FlopInfo extractFlopClockAndReset(
     return flop;
 }
 
-void check_functional_logic_no_clock_reset(
-    DFGNode* functional_logic,
-    asyncTrigger_t clock,
-    std::optional<asyncTrigger_t> reset)
+void check_logic_no_clock_reset(
+    DFGNode* root,
+    const std::vector<std::string>& clocks,
+    const std::vector<std::string>& resets)
 {
     std::set<DFGNode*> visited;
-    std::vector<DFGNode*> to_visit = {functional_logic};
+    std::vector<DFGNode*> to_visit = {root};
 
     while (!to_visit.empty()) {
         DFGNode* current = to_visit.back();
@@ -174,13 +173,17 @@ void check_functional_logic_no_clock_reset(
         visited.insert(current);
 
         if (current->op == DFGOp::INPUT) {
-            if (current->name == clock.name) {
-                throw CompilerError(
-                    "Functional logic uses clock signal: " + clock.name, current->loc);
+            for (const auto& clk : clocks) {
+                if (current->name == clk) {
+                    throw CompilerError(
+                        "Logic uses clock signal: " + clk, current->loc);
+                }
             }
-            if (reset && current->name == reset->name) {
-                throw CompilerError(
-                    "Functional logic uses reset signal: " + reset->name, current->loc);
+            for (const auto& rst : resets) {
+                if (current->name == rst) {
+                    throw CompilerError(
+                        "Logic uses reset signal: " + rst, current->loc);
+                }
             }
         }
 
@@ -229,14 +232,52 @@ void resolveFlops(ResolvedModule& resolved) {
             resolved_flops.push_back(
                 extractFlopClockAndReset(graph, resolved, name, flop, functional_logic));
             auto& output = graph.signals.at(name + ".d");
-            check_functional_logic_no_clock_reset(
-                functional_logic,
-                resolved_flops.back().clock,
-                resolved_flops.back().reset);
+            const asyncTrigger_t clock = resolved_flops.back().clock;
+            const std::optional<asyncTrigger_t> reset = resolved_flops.back().reset;
+
+            // Helper to find exactly one signal
+            auto find_unique_input = [&](const std::string& name) -> auto& {
+                auto it = std::find_if(resolved.inputs.begin(), resolved.inputs.end(),
+                    [&](const auto& input) { return input.name == name; });
+                if (it == resolved.inputs.end())
+                    throw std::logic_error("No input found matching: " + name);
+                if (std::find_if(std::next(it), resolved.inputs.end(),
+                        [&](const auto& input) { return input.name == name; }) != resolved.inputs.end())
+                    throw std::logic_error("Multiple inputs found matching: " + name);
+                return *it;
+            };
+
+            // Set clock and reset types
+            find_unique_input(clock.name).type.kind = ResolvedTypeKind::Clock;
+            if (reset) {
+                find_unique_input(reset->name).type.kind = ResolvedTypeKind::Reset;
+            }
+
+            // Connect functional logic to the flop's .d signal
+            // If there was reset, this removes the reset MUX
             output->in = {functional_logic};
         }
     }
     resolved.flops = resolved_flops;
+
+    // Build clock/reset name lists from inputs that were tagged
+    std::vector<std::string> clocks;
+    std::vector<std::string> resets;
+    for (const auto& input : resolved.inputs) {
+        if (input.type.kind == ResolvedTypeKind::Clock) {
+            clocks.push_back(input.name);
+        } else if (input.type.kind == ResolvedTypeKind::Reset) {
+            resets.push_back(input.name);
+        }
+    }
+
+    // Check that no signal or output logic depends on clock/reset
+    for (const auto& [name, node] : graph.signals) {
+        check_logic_no_clock_reset(node, clocks, resets);
+    }
+    for (const auto& [name, node] : graph.outputs) {
+        check_logic_no_clock_reset(node, clocks, resets);
+    }
 }
 
 } // namespace custom_hdl

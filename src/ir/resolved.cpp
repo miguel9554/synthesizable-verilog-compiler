@@ -20,6 +20,12 @@ ResolvedType ResolvedType::makeInteger(int width, bool is_signed) {
 
 void ResolvedType::print(std::ostream& os) const {
     switch (kind) {
+        case ResolvedTypeKind::Clock:
+            os << "Clock";
+            break;
+        case ResolvedTypeKind::Reset:
+            os << "Reset";
+            break;
         case ResolvedTypeKind::Integer:
             os << "Integer";
             break;

@@ -7,6 +7,8 @@ namespace custom_hdl {
 
 enum class ResolvedTypeKind {
     Integer,
+    Clock,
+    Reset,
     // Future: Real, Struct, Enum, etc.
 };
 
