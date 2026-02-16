@@ -15,6 +15,7 @@
 #include "passes/flop_resolve.h"
 #include "passes/domain_resolve.h"
 #include "passes/type_propagation.h"
+#include "sim/simulator.h"
 #include "util/debug.h"
 #include "util/source_loc.h"
 
@@ -26,18 +27,21 @@ using namespace custom_hdl;
 void printUsage(const char* progName) {
     std::cerr << "Usage: " << progName << " [options] <verilog_file>" << std::endl;
     std::cerr << "\nOptions:" << std::endl;
-    std::cerr << "  --passes <1|2>  Number of passes to run (default: 1)" << std::endl;
-    std::cerr << "                  1 = extraction only (unresolved IR)" << std::endl;
-    std::cerr << "                  2 = extraction + resolution" << std::endl;
+    std::cerr << "  --passes <1|2>          Number of passes to run (default: 1)" << std::endl;
+    std::cerr << "                          1 = extraction only (unresolved IR)" << std::endl;
+    std::cerr << "                          2 = extraction + resolution" << std::endl;
+    std::cerr << "  --simulate <config.yaml> Run cycle-based simulation (implies --passes 2)" << std::endl;
     std::cerr << "\nExample:" << std::endl;
     std::cerr << "  " << progName << " examples/test.v" << std::endl;
     std::cerr << "  " << progName << " --passes 2 examples/test.v" << std::endl;
+    std::cerr << "  " << progName << " --simulate sim_config.yaml examples/test.v" << std::endl;
 }
 
 int main(int argc, char** argv) {
     // Parse command line arguments
     int numPasses = 1;
     std::string filename;
+    std::string simConfigPath;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--passes") == 0) {
@@ -52,6 +56,14 @@ int main(int argc, char** argv) {
                 printUsage(argv[0]);
                 return 1;
             }
+        } else if (std::strcmp(argv[i], "--simulate") == 0) {
+            if (i + 1 >= argc) {
+                std::cerr << "ERROR: --simulate requires a config file argument" << std::endl;
+                printUsage(argv[0]);
+                return 1;
+            }
+            simConfigPath = argv[++i];
+            numPasses = 2;  // --simulate implies --passes 2
         } else if (argv[i][0] == '-') {
             std::cerr << "ERROR: Unknown option: " << argv[i] << std::endl;
             printUsage(argv[0]);
@@ -181,6 +193,32 @@ int main(int argc, char** argv) {
         for (const auto& module : resolvedModules) {
             module.print();
             std::cout << std::endl;
+        }
+
+        // Run simulation if requested
+        if (!simConfigPath.empty()) {
+            std::cout << "========================================" << std::endl;
+            std::cout << "Running simulation..." << std::endl;
+            std::cout << "========================================" << std::endl;
+
+            auto simConfig = parseSimConfig(simConfigPath);
+
+            // Find the top module
+            const ResolvedModule* topModule = nullptr;
+            for (const auto& mod : resolvedModules) {
+                if (mod.name == simConfig.top_module) {
+                    topModule = &mod;
+                    break;
+                }
+            }
+            if (!topModule) {
+                throw CompilerError(std::format(
+                    "Simulator: top module '{}' not found in resolved modules",
+                    simConfig.top_module));
+            }
+
+            Simulator sim(*topModule, simConfig);
+            sim.run();
         }
     }
 

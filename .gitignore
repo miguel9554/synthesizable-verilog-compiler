@@ -36,4 +36,4 @@ __pycache__/
 .cache
 .clangd
 debug_output/**
-scratchpad/syntax-analysis/**.txt
+scratchpad/syntax-analysis/*/*.txt

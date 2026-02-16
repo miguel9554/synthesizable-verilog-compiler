@@ -6,6 +6,12 @@
 
 # Arch/high level TODOs
 
+## Remove loc info from nodes
+
+Currently we have a `loc` field in each node, which is used for error
+reporting. However, this is not ideal because the info should not be in the
+DFG. We should store it in a secondary data structure.
+
 ## Types
 
 We have clock, reset and integer. Probably need more, user defined types?

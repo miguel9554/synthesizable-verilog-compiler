@@ -6,6 +6,7 @@ HEADER_SOURCES := $(shell find src -name '*.h')
 SOURCES := $(CPP_SOURCES) $(HEADER_SOURCES)
 BINARY := build/custom_hdl_compiler
 passes ?= 1
+source ?= examples/test.v
 
 all: $(BINARY) run
 
@@ -15,7 +16,7 @@ $(BINARY): $(SOURCES)
 build: $(BINARY)
 
 run: $(BINARY)
-	./$(BINARY) --passes $(passes) examples/test.v
+	./$(BINARY) --passes $(passes) $(source)
 
 # Debug targets
 debug-configure:

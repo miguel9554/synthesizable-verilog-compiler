@@ -1,0 +1,72 @@
+#pragma once
+
+#include "ir/resolved.h"
+
+#include <map>
+#include <string>
+#include <vector>
+
+namespace custom_hdl {
+
+struct SimConfig {
+    std::string top_module;
+    std::map<std::string, std::string> input_files;  // input_name -> file_path
+    std::string output_dir;
+};
+
+SimConfig parseSimConfig(const std::string& yaml_path);
+
+struct AsyncEvent {
+    int64_t time;
+    std::string signal_name;
+    int64_t value;
+};
+
+class Simulator {
+public:
+    Simulator(const ResolvedModule& module, const SimConfig& config);
+    void run();
+
+private:
+    const ResolvedModule& module_;
+    const SimConfig& config_;
+
+    // Topological order for combinational evaluation
+    std::vector<const DFGNode*> topo_order_;
+
+    // Value storage: node pointer -> value
+    std::map<const DFGNode*, int64_t> values_;
+
+    // Async event timeline (merged, time-sorted)
+    std::vector<AsyncEvent> timeline_;
+
+    // Flop lookup maps
+    std::map<std::string, std::vector<const FlopInfo*>> flops_by_clock_;
+    std::map<std::string, std::vector<const FlopInfo*>> flops_by_reset_;
+
+    // Flop .q node -> FlopInfo mapping for quick access
+    std::map<const DFGNode*, const FlopInfo*> flop_q_nodes_;
+
+    // Which inputs are async (clock/reset) vs sync
+    std::set<std::string> async_inputs_;
+    std::map<std::string, std::vector<int64_t>> sync_input_data_;  // name -> values from file
+    std::map<std::string, size_t> sync_input_pos_;  // name -> current position
+
+    // Output recording
+    std::map<std::string, std::vector<int64_t>> recorded_values_;
+
+    void buildTopology();
+    void buildTimeline();
+    void buildFlopMaps();
+    void loadSyncInputs();
+
+    void evaluateCombinational();
+    int64_t evaluateNode(const DFGNode* node);
+    int64_t maskToWidth(int64_t val, const DFGNode* node);
+
+    void advanceSyncInputs();
+    void recordOutputs();
+    void writeOutputFiles();
+};
+
+} // namespace custom_hdl

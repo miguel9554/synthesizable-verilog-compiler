@@ -24,6 +24,19 @@ endif()
 message(STATUS "Adding slang from external/slang")
 add_subdirectory(external/slang)
 
+# Check if yaml-cpp submodule is initialized
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp/CMakeLists.txt")
+    message(FATAL_ERROR
+        "yaml-cpp submodule not found. Please run:\n"
+        "  git submodule update --init --recursive"
+    )
+endif()
+
+# Add yaml-cpp (disable tests/tools to speed up build)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/yaml-cpp)
+
 # Collect all source files in src/
 file(GLOB_RECURSE PROJECT_SOURCES src/*.cpp)
 
@@ -39,6 +52,7 @@ endif()
 target_link_libraries(custom_hdl_compiler PRIVATE
     slang_slang
     boost_unordered
+    yaml-cpp
 )
 
 # Include directories
@@ -47,6 +61,7 @@ target_include_directories(custom_hdl_compiler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/slang/external
     ${CMAKE_CURRENT_BINARY_DIR}/external/slang/source
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp/include
 )
 
 # Optional: Add install target
