@@ -67,8 +67,15 @@ int64_t Simulator::maskToWidth(int64_t val, const DFGNode* node) {
 void Simulator::buildTopology() {
     const auto& nodes = module_.dfg->nodes;
 
-    // Build adjacency: for each node, count how many inputs it has (in-degree)
-    // and track which nodes it feeds (successors)
+    // Build flop .q node -> FlopInfo map (needed by run loop, not by topo sort)
+    for (const auto& flop : module_.flops) {
+        std::string qname = flop.name + ".q";
+        if (auto it = module_.dfg->signals.find(qname); it != module_.dfg->signals.end()) {
+            flop_q_nodes_[it->second] = &flop;
+        }
+    }
+
+    // The DFG is purely combinational (no cycles). Kahn's algorithm gives eval order.
     std::map<const DFGNode*, int> in_degree;
     std::map<const DFGNode*, std::vector<const DFGNode*>> successors;
 
@@ -76,31 +83,13 @@ void Simulator::buildTopology() {
         in_degree[node.get()] = 0;
     }
 
-    // Flop .q nodes should be treated as having 0 in-degree (they are leaf values).
-    // Identify them: a SIGNAL node whose name ends with ".q" and is in the flop list.
-    std::set<const DFGNode*> flop_q_set;
-    for (const auto& flop : module_.flops) {
-        std::string qname = flop.name + ".q";
-        if (auto it = module_.dfg->signals.find(qname); it != module_.dfg->signals.end()) {
-            flop_q_set.insert(it->second);
-            flop_q_nodes_[it->second] = &flop;
-        }
-    }
-
     for (const auto& node : nodes) {
-        // Flop .q nodes: treat as 0 in-degree (they're registers, not combinational)
-        if (flop_q_set.count(node.get())) {
-            in_degree[node.get()] = 0;
-            continue;
-        }
-
         for (const auto& input : node->in) {
             in_degree[node.get()]++;
             successors[input.node].push_back(node.get());
         }
     }
 
-    // BFS from nodes with 0 in-degree
     std::queue<const DFGNode*> q;
     for (const auto& [node, deg] : in_degree) {
         if (deg == 0) q.push(node);
@@ -121,7 +110,7 @@ void Simulator::buildTopology() {
 
     if (topo_order_.size() != nodes.size()) {
         throw CompilerError(std::format(
-            "Simulator: topological sort failed — {} of {} nodes sorted (cycle detected?)",
+            "Simulator: topological sort failed — {} of {} nodes sorted (cycle in DFG?)",
             topo_order_.size(), nodes.size()));
     }
 }

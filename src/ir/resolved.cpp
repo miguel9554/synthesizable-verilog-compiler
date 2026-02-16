@@ -1,8 +1,12 @@
 #include "ir/resolved.h"
 #include "util/debug.h"
 
+#include <format>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <queue>
+#include <set>
 
 namespace custom_hdl {
 
@@ -140,6 +144,61 @@ void ResolvedModule::print(int indent) const {
             std::cout << indent_str(indent + 1) << "Wrote DFG JSON to: " << jsonFilename << std::endl;
         }
     }
+}
+
+// ============================================================================
+// Combinational loop detection
+// ============================================================================
+
+void validateNoCombLoops(const ResolvedModule& module) {
+    if (!module.dfg) return;
+
+    const auto& nodes = module.dfg->nodes;
+
+    // The DFG is purely combinational — no node should participate in a cycle.
+    // Kahn's algorithm: any node not sorted has a cycle.
+    std::map<const DFGNode*, int> in_degree;
+    std::map<const DFGNode*, std::vector<const DFGNode*>> successors;
+
+    for (const auto& node : nodes) {
+        in_degree[node.get()] = 0;
+    }
+
+    for (const auto& node : nodes) {
+        for (const auto& input : node->in) {
+            in_degree[node.get()]++;
+            successors[input.node].push_back(node.get());
+        }
+    }
+
+    std::queue<const DFGNode*> q;
+    for (const auto& [node, deg] : in_degree) {
+        if (deg == 0) q.push(node);
+    }
+
+    std::set<const DFGNode*> sorted;
+    while (!q.empty()) {
+        const DFGNode* curr = q.front();
+        q.pop();
+        sorted.insert(curr);
+
+        for (const DFGNode* succ : successors[curr]) {
+            if (--in_degree[succ] == 0) {
+                q.push(succ);
+            }
+        }
+    }
+
+    if (sorted.size() == nodes.size()) return;  // no cycles
+
+    // Report all nodes involved in cycles
+    std::string msg = "Combinational loop(s) detected in module '" + module.name + "':\n";
+    for (const auto& node : nodes) {
+        if (!sorted.count(node.get())) {
+            msg += std::format("  - {} (id in DFG)\n", node->str());
+        }
+    }
+    throw CompilerError(msg);
 }
 
 } // namespace custom_hdl

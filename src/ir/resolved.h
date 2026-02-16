@@ -116,4 +116,8 @@ struct ParameterContext {
     std::map<std::string, int> values;
 };
 
+// Validate that no combinational loops exist in the DFG.
+// Throws CompilerError listing the nodes involved in any detected cycle.
+void validateNoCombLoops(const ResolvedModule& module);
+
 } // namespace custom_hdl

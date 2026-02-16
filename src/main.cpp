@@ -184,6 +184,7 @@ int main(int argc, char** argv) {
             module.dfg->validateNoOrphans();
             runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
             runPass(6, "domain_resolve", [&]{ resolveDomains(module); });
+            validateNoCombLoops(module);
         }
 
         std::cout << "----------------------------------------" << std::endl;
