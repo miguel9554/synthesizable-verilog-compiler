@@ -2,6 +2,7 @@
 #include "util/syntax_helpers.h"
 
 #include "util/source_loc.h"
+#include "util/source_loc_resolve.h"
 
 #include <algorithm>
 #include <memory>
@@ -23,7 +24,10 @@ namespace {
 // Visitor to find flop names (LHS of non-blocking assignments)
 class FlopFinderVisitor : public SyntaxVisitor<FlopFinderVisitor> {
 public:
+    const slang::SourceManager& sm;
     std::set<std::string> flopNames;
+
+    explicit FlopFinderVisitor(const slang::SourceManager& sm) : sm(sm) {}
 
     void handle(const BinaryExpressionSyntax& node) {
         if (node.kind == SyntaxKind::NonblockingAssignmentExpression) {
@@ -53,7 +57,8 @@ private:
                 break;
             }
             default:
-                throw CompilerError("Not supported in NB assign: " + std::string(toString(expr->kind)));
+                throw CompilerError("Not supported in NB assign: " + std::string(toString(expr->kind)),
+                                    resolveSourceLoc(*expr, sm));
         }
     }
 };
@@ -61,8 +66,11 @@ private:
 // Visitor class that builds our custom IR from slang syntax tree
 class IRBuilderVisitor : public SyntaxVisitor<IRBuilderVisitor> {
 public:
+    const slang::SourceManager& sm;
     std::vector<std::unique_ptr<UnresolvedModule>> modules;
     UnresolvedModule* currentModule = nullptr;
+
+    explicit IRBuilderVisitor(const slang::SourceManager& sm) : sm(sm) {}
 
     // Module members we support and will visit
     static constexpr SyntaxKind allowedMembers[] = {
@@ -105,7 +113,7 @@ public:
         module->inputs = std::move(headerInfo.inputs);
         module->outputs = std::move(headerInfo.outputs);
 
-        if (node.blockName) throw CompilerError("Can't parse blockName");
+        if (node.blockName) throw CompilerError("Can't parse blockName", resolveSourceLoc(node, sm));
 
         // Set current module context
         currentModule = module.get();
@@ -116,13 +124,13 @@ public:
                 member->visit(*this);
             } else {
                 throw CompilerError(
-                    "Disallowed module member: " + std::string(toString(member->kind))
-                );
+                    "Disallowed module member: " + std::string(toString(member->kind)),
+                    resolveSourceLoc(*member, sm));
             }
         }
 
         // Find flops by scanning for non-blocking assignments
-        FlopFinderVisitor flopFinder;
+        FlopFinderVisitor flopFinder(sm);
         node.visit(flopFinder);
 
         // Process each found flop
@@ -138,7 +146,8 @@ public:
                                        [&](const auto& o) { return o.name == flopName; });
 
             if (sigIt == currentModule->signals.end() && outIt == currentModule->outputs.end()) {
-                throw CompilerError("Flop '" + flopName + "' not found in signals or outputs");
+                throw CompilerError("Flop '" + flopName + "' not found in signals or outputs",
+                                    resolveSourceLoc(node, sm));
             }
 
             // Get the flop's type info from whichever list it was found in
@@ -180,11 +189,11 @@ public:
 
     void handle(const NetDeclarationSyntax& node) {
         if (!currentModule) throw CompilerError(
-                "Net declaration block must be inside module.");
+                "Net declaration block must be inside module.", resolveSourceLoc(node, sm));
         if (node.strength) throw CompilerError(
-                "Strength not allowed.");
+                "Strength not allowed.", resolveSourceLoc(node, sm));
         if (node.delay) throw CompilerError(
-                "Delay not allowed.");
+                "Delay not allowed.", resolveSourceLoc(node, sm));
         // TODO we shold handle the expansionHint
         const auto type = extractDataType(*node.type);
         std::vector<UnresolvedSignal> signals;
@@ -206,7 +215,7 @@ public:
 
     void handle(const DataDeclarationSyntax& node) {
         if (!currentModule) throw CompilerError(
-                "Variable declaration block must be inside module.");
+                "Variable declaration block must be inside module.", resolveSourceLoc(node, sm));
         const auto type = extractDataType(*node.type);
         std::vector<UnresolvedSignal> signals;
         for (auto declarator : node.declarators){
@@ -223,19 +232,19 @@ public:
 
     void handle(const HierarchyInstantiationSyntax& node) {
         if (!currentModule) throw CompilerError(
-                "Continuous assign must be inside module.");
+                "Hierarchy instantiation must be inside module.", resolveSourceLoc(node, sm));
         currentModule->hierarchyInstantiation.push_back(&node);
     }
 
     void handle(const ContinuousAssignSyntax& node) {
         if (!currentModule) throw CompilerError(
-                "Continuous assign must be inside module.");
+                "Continuous assign must be inside module.", resolveSourceLoc(node, sm));
         currentModule->assignStatements.push_back(&node);
     }
 
     void handle(const ProceduralBlockSyntax& node) {
         if (!currentModule) throw CompilerError(
-                "Procedural block must be inside module.");
+                "Procedural block must be inside module.", resolveSourceLoc(node, sm));
 
         // Extract sensitivity list based on block kind
         switch (node.kind) {
@@ -246,7 +255,7 @@ public:
                     auto& timingControl = statement->as<TimingControlStatementSyntax>();
                     currentModule->proceduralTimingBlocks.push_back(&timingControl);
                 } else {
-                    throw CompilerError("Procedural block must have timing control.");
+                    throw CompilerError("Procedural block must have timing control.", resolveSourceLoc(node, sm));
                 }
                 break;
              }
@@ -257,16 +266,17 @@ public:
 
                 } else {
                     throw CompilerError(
-                    "Not synthesizable statement: " + std::string(toString(statement->kind)));
+                    "Not synthesizable statement: " + std::string(toString(statement->kind)),
+                    resolveSourceLoc(node, sm));
                 }
                 break;
              }
             case SyntaxKind::AlwaysLatchBlock:
-                throw CompilerError("Latch not allowed.");
+                throw CompilerError("Latch not allowed.", resolveSourceLoc(node, sm));
             case SyntaxKind::InitialBlock:
-                throw CompilerError("Initial block not synthesizable");
+                throw CompilerError("Initial block not synthesizable", resolveSourceLoc(node, sm));
             default:
-                throw CompilerError("Unknown procedural block kind");
+                throw CompilerError("Unknown procedural block kind", resolveSourceLoc(node, sm));
         }
 
         visitDefault(node);
@@ -278,7 +288,7 @@ public:
 namespace custom_hdl {
 
 std::vector<std::unique_ptr<UnresolvedModule>> buildIR(const SyntaxTree& tree) {
-    IRBuilderVisitor visitor;
+    IRBuilderVisitor visitor(tree.sourceManager());
     tree.root().visit(visitor);
     return std::move(visitor.modules);
 }
