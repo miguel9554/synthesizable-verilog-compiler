@@ -32,14 +32,24 @@ struct ResolvedDimension {
     int size() const { return std::abs(left - right) + 1; }
 };
 
-struct ResolvedSignal {
+struct ResolvedSignalBase {
     std::string name;
     ResolvedType type;
     std::vector<ResolvedDimension> dimensions;
 
-    double value;
-
     void print(std::ostream& os) const;
+};
+
+struct ResolvedSignal : ResolvedSignalBase{
+    ResolvedSignal* clock_domain;
+};
+
+struct ResolvedParam : ResolvedSignalBase {
+    double value = 0;
+    void print(std::ostream& os) const {
+        ResolvedSignalBase::print(os);
+        os << " value=" << value;
+    }
 };
 
 typedef enum {
@@ -56,9 +66,6 @@ struct FlopInfo {
 
     void print(std::ostream& os, int indent = 0) const;
 };
-
-// Parameter extends signal with a resolved value
-using ResolvedParam = ResolvedSignal;
 
 // ============================================================================
 // Type traits for resolved types

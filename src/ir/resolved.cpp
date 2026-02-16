@@ -64,7 +64,7 @@ void FlopInfo::print(std::ostream& os, int indent) const {
     }
 }
 
-void ResolvedSignal::print(std::ostream& os) const {
+void ResolvedSignalBase::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
     for (const auto& dim : dimensions) {
