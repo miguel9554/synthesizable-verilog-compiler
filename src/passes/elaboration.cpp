@@ -34,6 +34,14 @@ struct ResolutionContext {
     const slang::SourceManager& sm;
     bool is_sequential;
     std::vector<asyncTrigger_t> triggers;
+
+    // In combinational blocks, tracks the current driver for each signal.
+    // When a signal is assigned (e.g., `x = expr`), the driver is stored here.
+    // Subsequent reads of `x` in the same block return this driver instead of
+    // the signal node, avoiding structural cycles from patterns like:
+    //   x = 42 + count;
+    //   x = 43 + x;   // RHS `x` must resolve to ADD(42, count), not SIGNAL(x)
+    std::map<std::string, DFGNode*> combDrivers;
 };
 
 // ============================================================================
@@ -388,6 +396,14 @@ DFGNode* buildExprDFG(
         case SyntaxKind::IdentifierName: {
             auto& name = expr->as<IdentifierNameSyntax>();
             std::string baseName(name.identifier.valueText());
+            // In combinational blocks, if this signal was already assigned,
+            // use the current driver (not the signal node) to avoid cycles.
+            if (!ctx.is_sequential) {
+                auto it = ctx.combDrivers.find(baseName);
+                if (it != ctx.combDrivers.end()) {
+                    return it->second;
+                }
+            }
             const auto node = resolveIdentifier(
                     baseName,
                     ctx.graph,
@@ -400,12 +416,21 @@ DFGNode* buildExprDFG(
         case SyntaxKind::IdentifierSelectName: {
             auto& name = expr->as<IdentifierSelectNameSyntax>();
             std::string baseName(name.identifier.valueText());
-            const auto node = resolveIdentifier(
-                    baseName,
-                    ctx.graph,
-                    true,
-                    ctx.flopNames
-            );
+            DFGNode* node = nullptr;
+            if (!ctx.is_sequential) {
+                auto it = ctx.combDrivers.find(baseName);
+                if (it != ctx.combDrivers.end()) {
+                    node = it->second;
+                }
+            }
+            if (!node) {
+                node = resolveIdentifier(
+                        baseName,
+                        ctx.graph,
+                        true,
+                        ctx.flopNames
+                );
+            }
             const auto selectors = &name.selectors;
             auto indexedSignalNode = node;
 
@@ -706,6 +731,11 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
                             resolveSourceLoc(assignExpr, ctx.sm));
     }
 
+    // Track the current driver so subsequent reads in this block see it
+    if (!ctx.is_sequential) {
+        ctx.combDrivers[outputName] = RHSexprNode;
+    }
+
     // If the assign is sequential, set the triggers of the signal
     if (ctx.is_sequential) {
         ctx.thisModule->flopsTriggers[baseName] = ctx.triggers;
@@ -873,6 +903,7 @@ void resolveConditionalStatementInPlace(
             auto* muxOut = ctx.graph.mux(conditionNode, newDriver, oldDriver);
             muxOut->loc = resolveSourceLoc(*conditionalStatement, ctx.sm);
             connectSignalOrOutput(outName, muxOut);
+            if (!ctx.is_sequential) ctx.combDrivers[outName] = muxOut;
         }
     }
 
@@ -923,6 +954,7 @@ void resolveConditionalStatementInPlace(
         auto* muxOut = ctx.graph.mux(conditionNode, oldDriver, elseDriver);
         muxOut->loc = resolveSourceLoc(*conditionalStatement, ctx.sm);
         connectSignalOrOutput(elseName, muxOut);
+        if (!ctx.is_sequential) ctx.combDrivers[elseName] = muxOut;
     }
 }
 
@@ -1122,6 +1154,7 @@ void resolveCaseStatementInPlace(
         }
 
         connectSignalOrOutput(signalName, result);
+        if (!ctx.is_sequential) ctx.combDrivers[signalName] = result;
     }
 }
 
@@ -1180,6 +1213,7 @@ void resolveProceduralComboInPlace(
     }
     // always_comb is not sequential
     ctx.is_sequential = false;
+    ctx.combDrivers.clear();
     resolveStatementInPlace(statement, ctx);
 }
 
@@ -1245,6 +1279,7 @@ void resolveProceduralTimingInPlace(
         case SyntaxKind::ImplicitEventControl:
             std::cout << "We are on combo procedural" << std::endl;
             ctx.is_sequential = false;
+            ctx.combDrivers.clear();
             break;
         case SyntaxKind::EventControlWithExpression:{
             std::cout << "We are on flop procedural" << std::endl;
@@ -1604,7 +1639,7 @@ ResolvedModule resolveModule(const UnresolvedModule& unresolved, const Parameter
 
     // === Resolve all blocks into the shared graph ===
     // Create resolution context
-    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, sourceManager, false, {}};
+    ResolutionContext resCtx{graph, &resolved, flopNames, *mergedCtx, sourceManager, false, {}, {}};
 
     for (const auto& block : unresolved.proceduralComboBlocks) {
         resolveProceduralComboInPlace(block, resCtx);
