@@ -423,8 +423,10 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         vcd_tracer::module outputs_mod(vcd_top_->root, "outputs");
 
         for (const auto& [name, node] : module_.dfg->inputs) {
+            unsigned int w = getWidth(node);
             auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
-            elaborateWithWidth(inputs_mod, *v, name, getWidth(node));
+            elaborateWithWidth(inputs_mod, *v, name, w);
+            v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
         }
 
@@ -433,18 +435,23 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
             if (module_.dfg->inputs.count(name)) continue;  // already added above
             auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
             elaborateWithWidth(inputs_mod, *v, name, 1);
+            v->set_runtime_bit_size(1);
             vcd_async_values_[name] = std::move(v);
         }
 
         for (const auto& [name, node] : module_.dfg->signals) {
+            unsigned int w = getWidth(node);
             auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
-            elaborateWithWidth(signals_mod, *v, name, getWidth(node));
+            elaborateWithWidth(signals_mod, *v, name, w);
+            v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
         }
 
         for (const auto& [name, node] : module_.dfg->outputs) {
+            unsigned int w = getWidth(node);
             auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
-            elaborateWithWidth(outputs_mod, *v, name, getWidth(node));
+            elaborateWithWidth(outputs_mod, *v, name, w);
+            v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
         }
     }
@@ -456,7 +463,11 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
 void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
                                 const std::map<std::string, int64_t>& async_values) {
     for (auto& [node, vcd_val] : vcd_values_) {
-        vcd_val->set_uint64(static_cast<uint64_t>(values_.at(node)));
+        uint64_t val = static_cast<uint64_t>(values_.at(node));
+        if (node->type.has_value() && node->type->width > 0 && node->type->width < 64) {
+            val &= (1ULL << node->type->width) - 1;
+        }
+        vcd_val->set_uint64(val);
     }
     for (auto& [name, vcd_val] : vcd_async_values_) {
         auto it = async_values.find(name);
