@@ -1,0 +1,241 @@
+$date
+   Thu Jan  1 00:00:00 1970
+$end
+$timescale
+   1ns
+$end
+$version
+   C++ Simple VCD Logger
+$end
+$scope module counter $end
+$scope module inputs $end
+$var wire 1 ! a_rst $end
+$var wire 1 " reset $end
+$var wire 1 # clk $end
+$upscope $end
+$scope module signals $end
+$var wire 16 $ count.d $end
+$var wire 16 % count.q $end
+$var wire 1 & done.d $end
+$var wire 1 ' done.q $end
+$var wire 8 ( my_new_value $end
+$var wire 8 ) my_value $end
+$var wire 4 * my_vector_flop.d $end
+$var wire 4 + my_vector_flop.q $end
+$var wire 4 , my_vector_flop[0].d $end
+$var wire 4 - my_vector_flop[0].q $end
+$var wire 4 . my_vector_flop[1].d $end
+$var wire 4 / my_vector_flop[1].q $end
+$var wire 8 0 next_count $end
+$var wire 8 1 sum $end
+$var wire 8 2 test $end
+$upscope $end
+$scope module outputs $end
+$var wire 16 3 count $end
+$var wire 1 4 done $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+bx !
+bx "
+bx #
+bx $
+bx %
+bx &
+bx '
+bx (
+bx )
+bx *
+bx +
+bx ,
+bx -
+bx .
+bx /
+bx 0
+bx 1
+bx 2
+bx 3
+bx 4
+b0 !
+b01 "
+b0 #
+b0 $
+b01110001011010110 %
+b0 &
+b0 '
+b01101110 (
+b0101011 )
+b01100 *
+b01010 +
+b01100 ,
+b01010 -
+b01010 .
+b01110 /
+b011010111 0
+b010111101 1
+b01 2
+b01110001011010110 3
+b0 4
+b01 #
+b0 %
+b0 (
+b01010101 )
+b0 *
+b01100 +
+b0 ,
+b01100 -
+b01100 .
+b01010 /
+b01 0
+b01010101 1
+b0 3
+#5
+b0 #
+#10
+b0 "
+b01 #
+b01 $
+b0 +
+b0 -
+b0 .
+b01100 /
+b0101010 2
+#15
+b0 #
+#20
+b01 !
+#22
+b01 #
+b010 $
+b01 %
+b01100101 (
+b01010110 )
+b010 *
+b010 ,
+b0 /
+b010 0
+b010111011 1
+b01 3
+#25
+b0 #
+#30
+b01 #
+b011 $
+b010 %
+b011001010 (
+b01010111 )
+b0100 *
+b010 +
+b0100 ,
+b010 -
+b010 .
+b011 0
+b010001101 1
+b01 2
+b010 3
+#35
+b0 #
+#40
+b01 #
+b0100 $
+b011 %
+b0101111 (
+b01011000 )
+b0110 *
+b0100 +
+b0110 ,
+b0100 -
+b0100 .
+b010 /
+b0100 0
+b0101001 1
+b011 3
+#45
+b0 #
+#50
+b01 #
+b0101 $
+b0100 %
+b010010100 (
+b01011001 )
+b01000 *
+b0110 +
+b01000 ,
+b0110 -
+b0110 .
+b0100 /
+b0101 0
+b011000101 1
+b0100 3
+#55
+b0 #
+#60
+b01 #
+b0110 $
+b0101 %
+b011111001 (
+b01011010 )
+b01010 *
+b01000 +
+b01010 ,
+b01000 -
+b01000 .
+b0110 /
+b0110 0
+b01100001 1
+b0101 3
+#65
+b0 #
+#70
+b01 #
+b0111 $
+b0110 %
+b01011110 (
+b01011011 )
+b01100 *
+b01010 +
+b01100 ,
+b01010 -
+b01010 .
+b01000 /
+b0111 0
+b011111101 1
+b0110 3
+#75
+b0 #
+#80
+b01 #
+b01000 $
+b0111 %
+b011000011 (
+b01011100 )
+b01110 *
+b01100 +
+b01110 ,
+b01100 -
+b01100 .
+b01010 /
+b01000 0
+b010011001 1
+b0111 3
+#85
+b0 #
+#90
+b01 #
+b01001 $
+b01000 %
+b0101000 (
+b01011101 )
+b0 *
+b01110 +
+b0 ,
+b01110 -
+b01110 .
+b01100 /
+b01001 0
+b0110101 1
+b01000 3
+#95
+#96
+#1096
