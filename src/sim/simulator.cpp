@@ -462,6 +462,12 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
 
 void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
                                 const std::map<std::string, int64_t>& async_values) {
+    // Advance time first: this dumps any pending values from the previous step
+    // at the previous timestamp, then writes the new #time marker.
+    vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{time_ns});
+
+    // Set new values — they stay pending until the next time_update call,
+    // so they'll be dumped under THIS timestamp.
     for (auto& [node, vcd_val] : vcd_values_) {
         uint64_t val = static_cast<uint64_t>(values_.at(node));
         if (node->type.has_value() && node->type->width > 0 && node->type->width < 64) {
@@ -475,7 +481,6 @@ void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
             vcd_val->set_uint64(static_cast<uint64_t>(it->second));
         }
     }
-    vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{time_ns});
 }
 
 // ============================================================================
