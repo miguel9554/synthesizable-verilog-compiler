@@ -351,15 +351,21 @@ void Simulator::advanceSyncInputs() {
 
 void Simulator::recordOutputs() {
     // Record all non-async inputs
+    /*
     for (const auto& [name, node] : module_.dfg->inputs) {
         if (!async_inputs_.count(name)) {
             recorded_values_[name].push_back(values_.at(node));
         }
     }
+    */
+
     // Record all signals (except flop .q which are internal)
+    /*
     for (const auto& [name, node] : module_.dfg->signals) {
         recorded_values_[name].push_back(values_.at(node));
     }
+    */
+
     // Record all outputs
     for (const auto& [name, node] : module_.dfg->outputs) {
         recorded_values_[name].push_back(values_.at(node));
@@ -562,6 +568,9 @@ void Simulator::run() {
 
     std::cout << "Simulator: initialization complete, processing "
               << timeline_.size() << " async events" << std::endl;
+
+    // Log outputs before first clock edge
+    recordOutputs();
 
     // === Main loop: process timeline in time-batches ===
 
