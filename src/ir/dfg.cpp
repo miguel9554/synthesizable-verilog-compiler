@@ -1,13 +1,15 @@
 #include "ir/dfg.h"
 
 #include <map>
+#include <queue>
 #include <set>
 #include <sstream>
 
 namespace custom_hdl {
 
-std::string DFG::toDot(const std::string& graphName,
-                       const std::set<const DFGNode*>& errorNodes) const {
+std::string DFG::renderDot(const std::string& graphName,
+                           const std::set<const DFGNode*>& errorNodes,
+                           const std::set<const DFGNode*>* filter) const {
     std::ostringstream ss;
     ss << "digraph " << graphName << " {\n";
     ss << "  rankdir=TB;\n";
@@ -22,6 +24,8 @@ std::string DFG::toDot(const std::string& graphName,
     // Output nodes
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
+        if (filter && !filter->count(node.get())) continue;
+
         ss << "  n" << i << " [label=\"";
 
         switch (node->op) {
@@ -96,7 +100,10 @@ std::string DFG::toDot(const std::string& graphName,
     // Output edges
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
+        if (filter && !filter->count(node.get())) continue;
+
         for (const auto& input : node->in) {
+            if (filter && !filter->count(input.node)) continue;
             ss << "  n" << nodeIndex.at(input.node) << " -> n" << i;
             if (input.port != 0) {
                 ss << " [label=\"port " << input.port << "\"]";
@@ -107,6 +114,30 @@ std::string DFG::toDot(const std::string& graphName,
 
     ss << "}\n";
     return ss.str();
+}
+
+std::string DFG::toDot(const std::string& graphName,
+                       const std::set<const DFGNode*>& errorNodes) const {
+    return renderDot(graphName, errorNodes, nullptr);
+}
+
+std::string DFG::toDotCone(const DFGNode* root,
+                           const std::string& graphName) const {
+    // BFS backward through fanin edges to collect the cone
+    std::set<const DFGNode*> cone;
+    std::queue<const DFGNode*> q;
+    cone.insert(root);
+    q.push(root);
+    while (!q.empty()) {
+        const DFGNode* curr = q.front();
+        q.pop();
+        for (const auto& input : curr->in) {
+            if (cone.insert(input.node).second) {
+                q.push(input.node);
+            }
+        }
+    }
+    return renderDot(graphName, {}, &cone);
 }
 
 std::string DFG::toJson(int indent) const {

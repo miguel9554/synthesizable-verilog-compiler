@@ -312,7 +312,7 @@ ResolvedType resolveType(
     switch (syntax.kind){
         case SyntaxKind::ImplicitType: {
             packedDimensionsSyntax = (syntax.as<ImplicitTypeSyntax>()).dimensions;
-            is_signed = false;
+            is_signed = syntax.as<ImplicitTypeSyntax>().signing.valueText() == "signed";
             break;
         }
         case SyntaxKind::LogicType: {

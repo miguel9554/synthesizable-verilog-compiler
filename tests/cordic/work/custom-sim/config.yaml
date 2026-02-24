@@ -6,3 +6,5 @@ inputs:
   start: "tests/cordic/work/custom-sim/stimuli/start.txt"
   angle_in: "tests/cordic/work/custom-sim/stimuli/angle_in.txt"
 output_dir: "tests/cordic/work/custom-sim/output"
+debug_dfg_nodes:
+  - "z.d"

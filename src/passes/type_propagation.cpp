@@ -48,7 +48,7 @@ static ResolvedType makeOneBitUnsigned() {
     return ResolvedType::makeInteger(1, false);
 }
 
-// Return the "wider" type: max width, signed if both signed
+// Return the "wider" type: max width, signed only if both signed
 static ResolvedType widenTypes(const ResolvedType& a, const ResolvedType& b) {
     int width = std::max(a.width, b.width);
     bool is_signed = a.isSigned() && b.isSigned();
@@ -76,9 +76,23 @@ static bool tryInferType(DFGNode* node) {
         case DFGOp::MODULE:
             return false;
 
+        // SUB: result is always signed (subtraction can produce negative values)
+        case DFGOp::SUB: {
+            if (node->in.size() < 2) {
+                throw CompilerError(std::format(
+                    "Type propagation: binary op {} has {} inputs (expected 2)",
+                    node->str(), node->in.size()), node->loc);
+            }
+            auto* lhs = node->in[0].node;
+            auto* rhs = node->in[1].node;
+            if (!lhs->hasType() || !rhs->hasType()) return false;
+            int width = std::max(lhs->type->width, rhs->type->width);
+            node->type = ResolvedType::makeInteger(width, true);
+            return true;
+        }
+
         // Arithmetic binary ops: result = max(operand widths), signed if both signed
         case DFGOp::ADD:
-        case DFGOp::SUB:
         case DFGOp::MUL:
         case DFGOp::DIV:
         case DFGOp::POWER: {

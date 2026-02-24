@@ -618,7 +618,14 @@ struct DFG {
 
     std::string toDot(const std::string& graphName = "DFG",
                       const std::set<const DFGNode*>& errorNodes = {}) const;
+    std::string toDotCone(const DFGNode* root,
+                          const std::string& graphName = "DFG") const;
     std::string toJson(int indent = 0) const;
+
+private:
+    std::string renderDot(const std::string& graphName,
+                          const std::set<const DFGNode*>& errorNodes,
+                          const std::set<const DFGNode*>* filter) const;
 };
 
 } // namespace custom_hdl

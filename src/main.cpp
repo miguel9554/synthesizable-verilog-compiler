@@ -210,6 +210,24 @@ int main(int argc, char** argv) {
             runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
             runPass(6, "domain_resolve", [&]{ resolveDomains(module); });
             validateNoCombLoops(module);
+
+            if (simConfig && !simConfig->debug_dfg_nodes.empty()) {
+                std::string dir = DEBUG_OUTPUT_DIR + "/" + module.name;
+                std::filesystem::create_directories(dir);
+                for (const auto& nodeName : simConfig->debug_dfg_nodes) {
+                    const DFGNode* node = nullptr;
+                    if (auto it = module.dfg->signals.find(nodeName); it != module.dfg->signals.end())
+                        node = it->second;
+                    else if (auto it = module.dfg->outputs.find(nodeName); it != module.dfg->outputs.end())
+                        node = it->second;
+                    else
+                        throw CompilerError(std::format(
+                            "debug_dfg_nodes: node '{}' not found in signals or outputs", nodeName));
+
+                    std::ofstream(std::format("{}/cone_{}.dot", dir, nodeName))
+                        << module.dfg->toDotCone(node, "cone_" + nodeName);
+                }
+            }
         }
 
         std::cout << "----------------------------------------" << std::endl;

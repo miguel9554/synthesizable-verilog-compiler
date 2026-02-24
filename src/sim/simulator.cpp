@@ -47,6 +47,12 @@ SimConfig parseSimConfig(const std::string& yaml_path) {
         }
     }
 
+    if (root["debug_dfg_nodes"]) {
+        for (const auto& node : root["debug_dfg_nodes"]) {
+            config.debug_dfg_nodes.push_back(node.as<std::string>());
+        }
+    }
+
     return config;
 }
 
