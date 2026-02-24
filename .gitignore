@@ -36,3 +36,6 @@ __pycache__/
 .cache
 .clangd
 scratchpad/syntax-analysis/*/*.txt
+**.vcd/
+examples/**.txt
+examples/**/obj_dir/
