@@ -1,3 +1,4 @@
+source_file: "tests/cordic/rtl/cordic.v"
 top_module: cordic
 inputs:
   clk: "tests/cordic/work/custom-sim/stimuli/clk.txt"

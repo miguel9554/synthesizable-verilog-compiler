@@ -1,3 +1,4 @@
+source_file: "examples/test.v"
 top_module: counter
 inputs:
   clk: "examples/sim_counter/stimuli/clk.txt"

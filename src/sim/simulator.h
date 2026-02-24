@@ -11,6 +11,7 @@
 namespace custom_hdl {
 
 struct SimConfig {
+    std::string source_file;
     std::string top_module;
     std::map<std::string, std::string> input_files;  // input_name -> file_path
     std::string output_dir;

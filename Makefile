@@ -7,7 +7,7 @@ SOURCES := $(CPP_SOURCES) $(HEADER_SOURCES)
 BINARY := build/custom_hdl_compiler
 passes ?= 2
 source ?= examples/test.v
-yaml ?= examples/sim_counter/config.yaml
+yaml ?= tests/counter/config.yaml
 
 all: $(BINARY) run
 
@@ -20,7 +20,7 @@ run: $(BINARY)
 	./$(BINARY) --passes $(passes) $(source)
 
 sim: $(BINARY)
-	./$(BINARY) $(source) --simulate $(yaml)
+	./$(BINARY) --simulate $(yaml)
 
 # Debug targets
 debug-configure:

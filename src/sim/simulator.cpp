@@ -23,6 +23,10 @@ SimConfig parseSimConfig(const std::string& yaml_path) {
 
     SimConfig config;
 
+    if (!root["source_file"])
+        throw CompilerError("Sim config missing 'source_file'");
+    config.source_file = root["source_file"].as<std::string>();
+
     if (!root["top_module"])
         throw CompilerError("Sim config missing 'top_module'");
     config.top_module = root["top_module"].as<std::string>();

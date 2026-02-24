@@ -26,15 +26,16 @@ using namespace custom_hdl;
 
 void printUsage(const char* progName) {
     std::cerr << "Usage: " << progName << " [options] <verilog_file>" << std::endl;
+    std::cerr << "       " << progName << " --simulate <config.yaml>" << std::endl;
     std::cerr << "\nOptions:" << std::endl;
     std::cerr << "  --passes <1|2>          Number of passes to run (default: 1)" << std::endl;
     std::cerr << "                          1 = extraction only (unresolved IR)" << std::endl;
     std::cerr << "                          2 = extraction + resolution" << std::endl;
-    std::cerr << "  --simulate <config.yaml> Run cycle-based simulation (implies --passes 2)" << std::endl;
+    std::cerr << "  --simulate <config.yaml> Run cycle-based simulation (source file from config)" << std::endl;
     std::cerr << "\nExample:" << std::endl;
     std::cerr << "  " << progName << " examples/test.v" << std::endl;
     std::cerr << "  " << progName << " --passes 2 examples/test.v" << std::endl;
-    std::cerr << "  " << progName << " --simulate sim_config.yaml examples/test.v" << std::endl;
+    std::cerr << "  " << progName << " --simulate config.yaml" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -76,6 +77,18 @@ int main(int argc, char** argv) {
             }
             filename = argv[i];
         }
+    }
+
+    // In simulate mode, source file comes from the config YAML
+    std::optional<SimConfig> simConfig;
+    if (!simConfigPath.empty()) {
+        if (!filename.empty()) {
+            std::cerr << "ERROR: --simulate gets source file from config; do not pass a positional file" << std::endl;
+            printUsage(argv[0]);
+            return 1;
+        }
+        simConfig = parseSimConfig(simConfigPath);
+        filename = simConfig->source_file;
     }
 
     if (filename.empty()) {
@@ -140,12 +153,6 @@ int main(int argc, char** argv) {
         std::cout << "========================================" << std::endl;
         std::cout << "Performing elaboration..." << std::endl;
         std::cout << "========================================" << std::endl;
-
-        // Parse sim config early so parameters are available for elaboration
-        std::optional<SimConfig> simConfig;
-        if (!simConfigPath.empty()) {
-            simConfig = parseSimConfig(simConfigPath);
-        }
 
         // Build parameter context for top module if sim config provides parameters
         auto resolvedModules = [&]() {
