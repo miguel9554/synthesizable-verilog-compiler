@@ -1,0 +1,8 @@
+top_module: counter
+inputs:
+  clk: "examples/sim_counter/stimuli/clk.txt"
+  a_rst: "examples/sim_counter/stimuli/a_rst.txt"
+  reset: "examples/sim_counter/stimuli/reset.txt"
+output_dir: "examples/sim_counter/output"
+parameters:
+  WIDTH: 8

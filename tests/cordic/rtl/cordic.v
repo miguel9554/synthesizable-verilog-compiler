@@ -104,6 +104,7 @@ module cordic #(
 
         end
         else begin
+/* verilator lint_off CASEINCOMPLETE */
             case (state)
                 //--------------------------------------------------------------
                 // IDLE state: Wait for start signal and initialize CORDIC
