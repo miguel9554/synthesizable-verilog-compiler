@@ -1,8 +1,7 @@
-top_module: counter
+top_module: cordic
 inputs:
-  clk: "examples/sim_counter/stimuli/clk.txt"
-  a_rst: "examples/sim_counter/stimuli/a_rst.txt"
-  reset: "examples/sim_counter/stimuli/reset.txt"
-output_dir: "examples/sim_counter/output"
-parameters:
-  WIDTH: 8
+  clk: "tests/cordic/work/custom-sim/stimuli/clk.txt"
+  rst_n: "tests/cordic/work/custom-sim/stimuli/rst_n.txt"
+  start: "tests/cordic/work/custom-sim/stimuli/start.txt"
+  angle_in: "tests/cordic/work/custom-sim/stimuli/angle_in.txt"
+output_dir: "tests/cordic/work/custom-sim/output"
