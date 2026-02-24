@@ -554,11 +554,30 @@ void Simulator::run() {
         values_[qnode] = static_cast<int64_t>(rng() & mask);
     }
 
-    // 3. Set async signal initial values to 0
+    // 3. Set async input values from first event in their timeline (must be at time 0)
+    std::map<std::string, int64_t> async_prev;
     for (const auto& name : async_inputs_) {
-        auto it = module_.dfg->inputs.find(name);
-        if (it != module_.dfg->inputs.end()) {
-            values_[it->second] = 0;
+        // Find the first event for this signal
+        bool found = false;
+        for (const auto& evt : timeline_) {
+            if (evt.signal_name == name) {
+                if (evt.time != 0) {
+                    throw CompilerError(std::format(
+                        "Simulator: async input '{}' first event is at time {} (must be 0)",
+                        name, evt.time));
+                }
+                async_prev[name] = evt.value;
+                auto it = module_.dfg->inputs.find(name);
+                if (it != module_.dfg->inputs.end()) {
+                    values_[it->second] = evt.value;
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            throw CompilerError(std::format(
+                "Simulator: async input '{}' has no events in timeline", name));
         }
     }
 
@@ -570,14 +589,26 @@ void Simulator::run() {
         }
     }
 
-    // 5. Evaluate all combinational logic
-    evaluateCombinational();
-
-    // Track async values for edge detection and VCD tracing
-    std::map<std::string, int64_t> async_prev;
-    for (const auto& name : async_inputs_) {
-        async_prev[name] = 0;
+    // 5. If any reset is asserted at time 0 (level check), apply it
+    for (const auto& [rst_name, flops] : flops_by_reset_) {
+        int64_t rst_val = async_prev[rst_name];
+        for (const auto* flop : flops) {
+            // POSEDGE reset is active when signal is 1,
+            // NEGEDGE reset is active when signal is 0.
+            bool asserted = (flop->reset->edge == POSEDGE && rst_val == 1) ||
+                            (flop->reset->edge == NEGEDGE && rst_val == 0);
+            if (asserted && flop->reset_value.has_value()) {
+                std::string qname = flop->name + ".q";
+                auto qit = module_.dfg->signals.find(qname);
+                if (qit != module_.dfg->signals.end()) {
+                    values_[qit->second] = flop->reset_value.value();
+                }
+            }
+        }
     }
+
+    // 6. Evaluate all combinational logic
+    evaluateCombinational();
 
     // VCD: trace initial state at time 0
     updateVcdValues(vcd_out, 0, async_prev);
