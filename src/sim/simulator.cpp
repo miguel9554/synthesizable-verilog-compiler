@@ -695,8 +695,10 @@ void Simulator::run() {
         }
     }
 
-    // Finalize VCD trace
-    vcd_top_->finalize_trace(vcd_out);
+    // Flush last pending VCD values at the final event time
+    if (!timeline_.empty()) {
+        vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{timeline_.back().time});
+    }
     vcd_out.close();
 
     // Write text output files
