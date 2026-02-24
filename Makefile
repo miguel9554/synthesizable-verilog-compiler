@@ -6,8 +6,8 @@ HEADER_SOURCES := $(shell find src -name '*.h')
 SOURCES := $(CPP_SOURCES) $(HEADER_SOURCES)
 BINARY := build/custom_hdl_compiler
 passes ?= 2
-source ?= examples/test.v
-yaml ?= tests/counter/config.yaml
+source ?= tests/counter/rtl/counter.v
+yaml ?= tests/counter/work/custom-sim/config.yaml
 
 all: $(BINARY) run
 
@@ -30,10 +30,10 @@ debug-build: debug-configure
 	cmake --build build -j$(shell nproc)
 
 debug: debug-build
-	./$(BINARY) --passes $(passes) examples/test.v
+	./$(BINARY) --passes $(passes) $(source)
 
 gdb: debug-build
-	gdb --args ./$(BINARY) --passes $(passes) examples/test.v
+	gdb --args ./$(BINARY) --passes $(passes) $(source)
 
 # Clean only project artifacts (preserves slang)
 clean_project:

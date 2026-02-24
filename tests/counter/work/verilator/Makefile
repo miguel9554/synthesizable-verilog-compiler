@@ -9,8 +9,8 @@ RTL_DIR = $(ROOT_DIR)/rtl
 TB_DIR = $(ROOT_DIR)/tb
 
 # Source files
-RTL_SRCS = ../../../test.v
-TB_SRCS = ../tb.sv
+RTL_SRCS = $(shell find $(RTL_DIR) -type f)
+TB_SRCS = $(shell find $(TB_DIR) -type f)
 SRCS= $(RTL_SRCS) $(TB_SRCS)
 TOP_MODULE = tb
 

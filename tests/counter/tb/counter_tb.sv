@@ -5,7 +5,7 @@ module sync_data_driver#(type T, string name)(
     output T data,
     output bit done
 );
-    localparam string base_dir = "../../stimuli";
+    localparam string base_dir = "../custom-sim/stimuli";
 
     function automatic void read_sync_file(string filepath, output T data[]);
         int fd;
@@ -75,7 +75,7 @@ module async_data_driver#(type T, string name)(
     output T data,
     output bit done
 );
-    localparam string base_dir = "../../stimuli";
+    localparam string base_dir = "../custom-sim/stimuli";
 
     typedef struct {
         int value;
