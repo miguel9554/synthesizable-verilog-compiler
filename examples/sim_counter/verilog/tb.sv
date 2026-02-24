@@ -51,15 +51,18 @@ module sync_data_driver#(type T, string name)(
     string filepath = {base_dir, "/", name, ".txt"};
 
     initial done = 0;
-    initial vector_index = 0;
-    initial data = signal_data[0];
-
-    initial read_sync_file(filepath, signal_data);
+    initial begin
+        read_sync_file(filepath, signal_data);
+        vector_index = 1;
+        data = signal_data[0];
+        $display("[%0t] Just set data INITIALLY to %0d", $realtime, data);
+    end
 
     always @(posedge clk) begin
         if (vector_index < signal_data.size()) begin
             data <= signal_data[vector_index];
             vector_index <= vector_index + 1;
+            $display("[%0t] Just set data to %0d", $realtime, data);
         end
         else begin
             done <= 1;

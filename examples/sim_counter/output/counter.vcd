@@ -14,8 +14,8 @@ $var wire 1 " reset $end
 $var wire 1 # clk $end
 $upscope $end
 $scope module signals $end
-$var wire 16 $ count.d $end
-$var wire 16 % count.q $end
+$var wire 8 $ count.d $end
+$var wire 8 % count.q $end
 $var wire 1 & done.d $end
 $var wire 1 ' done.q $end
 $var wire 8 ( my_new_value $end
@@ -31,7 +31,7 @@ $var wire 8 1 sum $end
 $var wire 8 2 test $end
 $upscope $end
 $scope module outputs $end
-$var wire 16 3 count $end
+$var wire 8 3 count $end
 $var wire 1 4 done $end
 $upscope $end
 $upscope $end
@@ -61,31 +61,25 @@ b0 !
 b1 "
 b0 #
 b0 $
-b10001011010110 %
+b0 %
 b0 &
 b0 '
-b01101110 (
-b0101011 )
+b0 (
+b01010101 )
 b1010 *
 b1010 +
 b1010 ,
 b1010 -
 b1010 .
 b10 /
-b1010111 0
-b10111101 1
+b01 0
+b01010101 1
 b01 2
-b10001011010110 3
+b0 3
 b0 4
 #5
 b1 #
-b0 %
-b0 (
-b01010101 )
 b1010 /
-b01 0
-b01010101 1
-b0 3
 #10
 b0 #
 #15
@@ -182,5 +176,3 @@ b01011101 )
 b01001 0
 b0110101 1
 b01000 3
-#96
-#1096
