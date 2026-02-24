@@ -1,5 +1,73 @@
 `timescale 1ns/1ps
 
+module sync_data_driver#(type T, string name)(
+    input logic clk,
+    output T data,
+    output bit done
+);
+    localparam string base_dir = "../../stimuli";
+
+    function automatic void read_sync_file(string filepath, output T data[]);
+        int fd;
+        string line;
+        data = new[0];
+        fd = $fopen(filepath, "r");
+
+        if (fd == 0) begin
+          $display("ERROR: Could not open file: %s", filepath);
+          $finish(1);
+        end
+
+        while (1) begin
+          int value;
+          line = "";
+
+          // Read line, break on EOF
+          if ($fgets(line, fd) == 0) break;
+
+          // Skip empty lines
+          if (line.len() == 0) continue;
+
+          // Skip comments (line starting with '#')
+          if (line.tolower().substr(0, 0) == "#") continue;
+
+          // Parse "time value"
+          if ($sscanf(line, "%d", value) == 1) begin
+            data = new[data.size()+1](data);
+            data[data.size()-1] = T'(value);
+          end
+          else begin
+            $display("ERROR: In %s, could not parse line: %s", filepath, line);
+            $finish(1);
+          end
+        end
+
+        $fclose(fd);
+    endfunction
+
+    T signal_data[];
+    int vector_index;
+
+    string filepath = {base_dir, "/", name, ".txt"};
+
+    initial done = 0;
+    initial vector_index = 0;
+    initial data = signal_data[0];
+
+    initial read_sync_file(filepath, signal_data);
+
+    always @(posedge clk) begin
+        if (vector_index < signal_data.size()) begin
+            data <= signal_data[vector_index];
+            vector_index <= vector_index + 1;
+        end
+        else begin
+            done <= 1;
+        end
+    end
+
+endmodule
+
 module async_data_driver#(type T, string name)(
     output T data,
     output bit done
@@ -88,14 +156,25 @@ module tb;
     );
 
 
-    bit[2-1:0] dones;
+    localparam DRIVERS = 3;
+    bit [DRIVERS-1:0] dones;
     initial begin
         wait(&dones);
         $finish;
     end
 
+    // Generate async signals.
     async_data_driver#(.T(logic), .name("clk")) u_clk_driver(.data(clk), .done(dones[0]));
     async_data_driver#(.T(logic), .name("a_rst")) u_a_rst_driver(.data(a_rst), .done(dones[1]));
+
+    // Generate sync inputs.
+    sync_data_driver#(.T(logic), .name("reset")) u_reset_driver(
+        .clk(clk),
+        .data(reset),
+        .done(dones[2])
+    );
+
+    // Generate sync outputs.
 
     initial $timeformat(-9, -12, " ns", 10);
 

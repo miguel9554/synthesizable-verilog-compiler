@@ -25,7 +25,7 @@ module cordic #(
     // Arctan lookup table
     // Stores precomputed arctan(2^-i) values in Q1.14 format
     //--------------------------------------------------------------------------
-    reg signed [WL-1:0] atan_table [0:N_ITER-1];
+    wire signed [WL-1:0] atan_table [0:N_ITER-1];
 
     //--------------------------------------------------------------------------
     // Internal registers
@@ -74,6 +74,23 @@ module cordic #(
         endcase
     end
 
+    // Initialize arctan lookup table (Q1.14 format)
+    assign atan_table[0]  = 16'sb0011_0010_0100_0100;   // atan(2^-0)  = 45.000° ≈ 0.78539 rad
+    assign atan_table[1]  = 16'sb0001_1101_1010_1100;   // atan(2^-1)  = 26.565° ≈ 0.46365 rad
+    assign atan_table[2]  = 16'sb0000_1111_1010_1110;   // atan(2^-2)  = 14.036° ≈ 0.24498 rad
+    assign atan_table[3]  = 16'sb0000_0111_1111_0101;   // atan(2^-3)  =  7.125° ≈ 0.12435 rad
+    assign atan_table[4]  = 16'sb0000_0011_1111_1111;   // atan(2^-4)  =  3.576° ≈ 0.06241 rad
+    assign atan_table[5]  = 16'sb0000_0010_0000_0000;   // atan(2^-5)  =  1.790° ≈ 0.03123 rad
+    assign atan_table[6]  = 16'sb0000_0001_0000_0000;   // atan(2^-6)  =  0.895° ≈ 0.01562 rad
+    assign atan_table[7]  = 16'sb0000_0000_1000_0000;   // atan(2^-7)  =  0.448° ≈ 0.00781 rad
+    assign atan_table[8]  = 16'sb0000_0000_0100_0000;   // atan(2^-8)  =  0.224° ≈ 0.00391 rad
+    assign atan_table[9]  = 16'sb0000_0000_0010_0000;   // atan(2^-9)  =  0.112° ≈ 0.00195 rad
+    assign atan_table[10] = 16'sb0000_0000_0001_0000;   // atan(2^-10) =  0.056° ≈ 0.00098 rad
+    assign atan_table[11] = 16'sb0000_0000_0000_1000;   // atan(2^-11) =  0.028° ≈ 0.00049 rad
+    assign atan_table[12] = 16'sb0000_0000_0000_0100;   // atan(2^-12) =  0.014° ≈ 0.00024 rad
+    assign atan_table[13] = 16'sb0000_0000_0000_0010;   // atan(2^-13) =  0.007° ≈ 0.00012 rad
+    assign atan_table[14] = 16'sb0000_0000_0000_0001;   // atan(2^-14) =  0.004° ≈ 0.00006 rad
+
     //--------------------------------------------------------------------------
     // Main CORDIC computation
     // Implements rotation mode CORDIC algorithm with arctan LUT initialization
@@ -85,22 +102,6 @@ module cordic #(
             sin_out <= 0;
             i       <= 0;
 
-            // Initialize arctan lookup table (Q1.14 format)
-            atan_table[0]  <= 16'sb0011_0010_0100_0100;   // atan(2^-0)  = 45.000° ≈ 0.78539 rad
-            atan_table[1]  <= 16'sb0001_1101_1010_1100;   // atan(2^-1)  = 26.565° ≈ 0.46365 rad
-            atan_table[2]  <= 16'sb0000_1111_1010_1110;   // atan(2^-2)  = 14.036° ≈ 0.24498 rad
-            atan_table[3]  <= 16'sb0000_0111_1111_0101;   // atan(2^-3)  =  7.125° ≈ 0.12435 rad
-            atan_table[4]  <= 16'sb0000_0011_1111_1111;   // atan(2^-4)  =  3.576° ≈ 0.06241 rad
-            atan_table[5]  <= 16'sb0000_0010_0000_0000;   // atan(2^-5)  =  1.790° ≈ 0.03123 rad
-            atan_table[6]  <= 16'sb0000_0001_0000_0000;   // atan(2^-6)  =  0.895° ≈ 0.01562 rad
-            atan_table[7]  <= 16'sb0000_0000_1000_0000;   // atan(2^-7)  =  0.448° ≈ 0.00781 rad
-            atan_table[8]  <= 16'sb0000_0000_0100_0000;   // atan(2^-8)  =  0.224° ≈ 0.00391 rad
-            atan_table[9]  <= 16'sb0000_0000_0010_0000;   // atan(2^-9)  =  0.112° ≈ 0.00195 rad
-            atan_table[10] <= 16'sb0000_0000_0001_0000;   // atan(2^-10) =  0.056° ≈ 0.00098 rad
-            atan_table[11] <= 16'sb0000_0000_0000_1000;   // atan(2^-11) =  0.028° ≈ 0.00049 rad
-            atan_table[12] <= 16'sb0000_0000_0000_0100;   // atan(2^-12) =  0.014° ≈ 0.00024 rad
-            atan_table[13] <= 16'sb0000_0000_0000_0010;   // atan(2^-13) =  0.007° ≈ 0.00012 rad
-            atan_table[14] <= 16'sb0000_0000_0000_0001;   // atan(2^-14) =  0.004° ≈ 0.00006 rad
         end
         else begin
             case (state)
