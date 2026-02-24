@@ -37,6 +37,12 @@ SimConfig parseSimConfig(const std::string& yaml_path) {
         throw CompilerError("Sim config missing 'output_dir'");
     config.output_dir = root["output_dir"].as<std::string>();
 
+    if (root["parameters"]) {
+        for (auto it = root["parameters"].begin(); it != root["parameters"].end(); ++it) {
+            config.parameters[it->first.as<std::string>()] = it->second.as<int64_t>();
+        }
+    }
+
     return config;
 }
 

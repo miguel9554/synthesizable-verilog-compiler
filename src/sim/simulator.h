@@ -14,6 +14,7 @@ struct SimConfig {
     std::string top_module;
     std::map<std::string, std::string> input_files;  // input_name -> file_path
     std::string output_dir;
+    std::map<std::string, int64_t> parameters;        // parameter_name -> value (overrides)
 };
 
 SimConfig parseSimConfig(const std::string& yaml_path);

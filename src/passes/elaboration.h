@@ -29,4 +29,11 @@ std::vector<ResolvedModule> resolveModules(
     const std::vector<std::unique_ptr<UnresolvedModule>>& modules,
     const slang::SourceManager& sourceManager);
 
+// Resolve all modules, applying parameter overrides to a specific top module
+std::vector<ResolvedModule> resolveModules(
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules,
+    const slang::SourceManager& sourceManager,
+    const std::string& topModuleName,
+    const ParameterContext& topParams);
+
 } // namespace custom_hdl

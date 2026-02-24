@@ -140,7 +140,25 @@ int main(int argc, char** argv) {
         std::cout << "========================================" << std::endl;
         std::cout << "Performing elaboration..." << std::endl;
         std::cout << "========================================" << std::endl;
-        auto resolvedModules = resolveModules(modules, tree->sourceManager());
+
+        // Parse sim config early so parameters are available for elaboration
+        std::optional<SimConfig> simConfig;
+        if (!simConfigPath.empty()) {
+            simConfig = parseSimConfig(simConfigPath);
+        }
+
+        // Build parameter context for top module if sim config provides parameters
+        auto resolvedModules = [&]() {
+            if (simConfig && !simConfig->parameters.empty()) {
+                ParameterContext topParams;
+                for (const auto& [name, value] : simConfig->parameters) {
+                    topParams.values[name] = static_cast<int>(value);
+                }
+                return resolveModules(modules, tree->sourceManager(),
+                                      simConfig->top_module, topParams);
+            }
+            return resolveModules(modules, tree->sourceManager());
+        }();
 
         // Optimization passes
         for (auto& module : resolvedModules) {
@@ -197,17 +215,15 @@ int main(int argc, char** argv) {
         }
 
         // Run simulation if requested
-        if (!simConfigPath.empty()) {
+        if (simConfig) {
             std::cout << "========================================" << std::endl;
             std::cout << "Running simulation..." << std::endl;
             std::cout << "========================================" << std::endl;
 
-            auto simConfig = parseSimConfig(simConfigPath);
-
             // Find the top module
             const ResolvedModule* topModule = nullptr;
             for (const auto& mod : resolvedModules) {
-                if (mod.name == simConfig.top_module) {
+                if (mod.name == simConfig->top_module) {
                     topModule = &mod;
                     break;
                 }
@@ -215,10 +231,10 @@ int main(int argc, char** argv) {
             if (!topModule) {
                 throw CompilerError(std::format(
                     "Simulator: top module '{}' not found in resolved modules",
-                    simConfig.top_module));
+                    simConfig->top_module));
             }
 
-            Simulator sim(*topModule, simConfig);
+            Simulator sim(*topModule, *simConfig);
             sim.run();
         }
     }

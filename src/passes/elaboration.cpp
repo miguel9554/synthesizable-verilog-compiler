@@ -1726,4 +1726,26 @@ std::vector<ResolvedModule> resolveModules(
     return resolved;
 }
 
+std::vector<ResolvedModule> resolveModules(
+    const std::vector<std::unique_ptr<UnresolvedModule>>& modules,
+    const slang::SourceManager& sourceManager,
+    const std::string& topModuleName,
+    const ParameterContext& topParams) {
+
+    ModuleLookup moduleLookup;
+    for (const auto& module : modules) {
+        moduleLookup[module->name] = module.get();
+    }
+
+    std::vector<ResolvedModule> resolved;
+    ParameterContext emptyCtx;
+
+    for (const auto& module : modules) {
+        const auto& ctx = (module->name == topModuleName) ? topParams : emptyCtx;
+        resolved.push_back(resolveModule(*module, ctx, moduleLookup, sourceManager));
+    }
+
+    return resolved;
+}
+
 } // namespace custom_hdl
