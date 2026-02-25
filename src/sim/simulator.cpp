@@ -315,9 +315,22 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
         }
 
         case DFGOp::INDEX: {
-            int64_t array_val = getVal(0);
+            const DFGNode* array_node = node->in[0].node;
             int64_t index = getVal(1);
-            int elem_width = 1;  // default to 1-bit
+
+            // Vector indexing: array node is a SIGNAL with multiple inputs
+            // (one per element). Select the value of the i-th input node.
+            if (array_node->in.size() > 1) {
+                if (index < 0 || index >= static_cast<int64_t>(array_node->in.size()))
+                    throw CompilerError(std::format(
+                        "Simulator: INDEX out of bounds: {} has {} elements, index={}",
+                        array_node->name, array_node->in.size(), index), node);
+                return values_.at(array_node->in[index].node);
+            }
+
+            // Bit-select: extract elem_width bits at position index*elem_width
+            int64_t array_val = getVal(0);
+            int elem_width = 1;
             if (node->type.has_value()) {
                 elem_width = node->type->width;
             }
