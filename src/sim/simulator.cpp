@@ -418,19 +418,19 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         return 64;
     };
 
-    // Helper: elaborate a value<uint64_t> into a module with the correct runtime bit width.
-    // We wrap the module's add_fn to override the bit_size parameter that
-    // value<uint64_t>::elaborate() hardcodes to 64.
+    // Helper: elaborate a value<int64_t> into a module with the correct runtime
+    // bit width.  We wrap the module's add_fn to override the bit_size that
+    // value<int64_t>::elaborate() would hardcode to 64.
     auto elaborateWithWidth = [](vcd_tracer::module& mod, vcd_tracer::value_base& var,
                                  std::string_view name, unsigned int width) {
         auto original_add_fn = mod.get_add_fn();
-        auto width_fn = [original_add_fn, width](
+        auto override_fn = [original_add_fn, width](
                 std::string_view var_name, std::string_view var_type,
                 unsigned int /*bit_size*/, vcd_tracer::scope_fn::dumper_fn fn)
                 -> vcd_tracer::value_context {
             return original_add_fn(var_name, var_type, width, fn);
         };
-        var.elaborate(width_fn, name);
+        var.elaborate(override_fn, name);
     };
 
     {
@@ -440,7 +440,7 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
 
         for (const auto& [name, node] : module_.dfg->inputs) {
             unsigned int w = getWidth(node);
-            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
             elaborateWithWidth(inputs_mod, *v, name, w);
             v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
@@ -449,7 +449,7 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         // Async inputs (clocks/resets) that don't have DFG input nodes
         for (const auto& name : async_inputs_) {
             if (module_.dfg->inputs.count(name)) continue;  // already added above
-            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
             elaborateWithWidth(inputs_mod, *v, name, 1);
             v->set_runtime_bit_size(1);
             vcd_async_values_[name] = std::move(v);
@@ -457,7 +457,7 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
 
         for (const auto& [name, node] : module_.dfg->signals) {
             unsigned int w = getWidth(node);
-            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
             elaborateWithWidth(signals_mod, *v, name, w);
             v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
@@ -465,7 +465,7 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
 
         for (const auto& [name, node] : module_.dfg->outputs) {
             unsigned int w = getWidth(node);
-            auto v = std::make_unique<vcd_tracer::value<uint64_t>>();
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
             elaborateWithWidth(outputs_mod, *v, name, w);
             v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
@@ -483,18 +483,15 @@ void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
     vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{time_ns});
 
     // Set new values — they stay pending until the next time_update call,
-    // so they'll be dumped under THIS timestamp.
+    // so they'll be dumped under THIS timestamp.  The runtime_bit_size set
+    // during elaboration controls how many bits the VCD dump outputs.
     for (auto& [node, vcd_val] : vcd_values_) {
-        uint64_t val = static_cast<uint64_t>(values_.at(node));
-        if (node->type.has_value() && node->type->width > 0 && node->type->width < 64) {
-            val &= (1ULL << node->type->width) - 1;
-        }
-        vcd_val->set_uint64(val);
+        vcd_val->set(values_.at(node));
     }
     for (auto& [name, vcd_val] : vcd_async_values_) {
         auto it = async_values.find(name);
         if (it != async_values.end()) {
-            vcd_val->set_uint64(static_cast<uint64_t>(it->second));
+            vcd_val->set(it->second);
         }
     }
 }

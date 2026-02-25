@@ -62,9 +62,9 @@ private:
 
     // VCD tracing
     std::unique_ptr<vcd_tracer::top> vcd_top_;
-    std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<uint64_t>>> vcd_values_;
+    std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_values_;
     // Async-only signals (clocks/resets not in DFG) traced by name
-    std::map<std::string, std::unique_ptr<vcd_tracer::value<uint64_t>>> vcd_async_values_;
+    std::map<std::string, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_async_values_;
 
     void setupVcd(std::ofstream& vcd_out);
     void updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
