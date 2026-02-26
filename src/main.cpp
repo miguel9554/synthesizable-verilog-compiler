@@ -226,6 +226,8 @@ int main(int argc, char** argv) {
 
                     std::ofstream(std::format("{}/cone_{}.dot", dir, nodeName))
                         << module.dfg->toDotCone(node, "cone_" + nodeName);
+                    std::ofstream(std::format("{}/cone_{}.json", dir, nodeName))
+                        << module.dfg->toJsonCone(node);
                 }
             }
         }

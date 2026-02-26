@@ -140,52 +140,30 @@ std::string DFG::toDotCone(const DFGNode* root,
     return renderDot(graphName, {}, &cone);
 }
 
-std::string DFG::toJson(int indent) const {
+std::string DFG::renderJson(int indent, const std::set<const DFGNode*>* filter) const {
     auto indentStr = [](int n) { return std::string(n * 2, ' '); };
+
+    // Build node index map
+    std::map<const DFGNode*, size_t> nodeIndex;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        nodeIndex[nodes[i].get()] = i;
+    }
 
     std::ostringstream ss;
     ss << indentStr(indent) << "{\n";
     ss << indentStr(indent + 1) << "\"nodes\": [\n";
 
+    bool firstNode = true;
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
+        if (filter && !filter->count(node.get())) continue;
+
+        if (!firstNode) ss << ",\n";
+        firstNode = false;
+
         ss << indentStr(indent + 2) << "{\n";
         ss << indentStr(indent + 3) << "\"id\": " << i << ",\n";
-        ss << indentStr(indent + 3) << "\"op\": \"";
-
-        switch (node->op) {
-            case DFGOp::INPUT: ss << "INPUT"; break;
-            case DFGOp::OUTPUT: ss << "OUTPUT"; break;
-            case DFGOp::SIGNAL: ss << "SIGNAL"; break;
-            case DFGOp::CONST: ss << "CONST"; break;
-            case DFGOp::ADD: ss << "ADD"; break;
-            case DFGOp::SUB: ss << "SUB"; break;
-            case DFGOp::MUL: ss << "MUL"; break;
-            case DFGOp::DIV: ss << "DIV"; break;
-            case DFGOp::EQ: ss << "EQ"; break;
-            case DFGOp::LT: ss << "LT"; break;
-            case DFGOp::LE: ss << "LE"; break;
-            case DFGOp::GT: ss << "GT"; break;
-            case DFGOp::GE: ss << "GE"; break;
-            case DFGOp::SHL: ss << "SHL"; break;
-            case DFGOp::ASR: ss << "ASR"; break;
-            case DFGOp::POWER: ss << "POWER"; break;
-            case DFGOp::MUX: ss << "MUX"; break;
-            case DFGOp::MUX_N: ss << "MUX_N"; break;
-            case DFGOp::MODULE: ss << "MODULE"; break;
-            case DFGOp::INDEX: ss << "INDEX"; break;
-            case DFGOp::UNARY_PLUS: ss << "UNARY_PLUS"; break;
-            case DFGOp::UNARY_NEGATE: ss << "UNARY_NEGATE"; break;
-            case DFGOp::BITWISE_NOT: ss << "BITWISE_NOT"; break;
-            case DFGOp::LOGICAL_NOT: ss << "LOGICAL_NOT"; break;
-            case DFGOp::REDUCTION_AND: ss << "REDUCTION_AND"; break;
-            case DFGOp::REDUCTION_NAND: ss << "REDUCTION_NAND"; break;
-            case DFGOp::REDUCTION_OR: ss << "REDUCTION_OR"; break;
-            case DFGOp::REDUCTION_NOR: ss << "REDUCTION_NOR"; break;
-            case DFGOp::REDUCTION_XOR: ss << "REDUCTION_XOR"; break;
-            case DFGOp::REDUCTION_XNOR: ss << "REDUCTION_XNOR"; break;
-        }
-        ss << "\",\n";
+        ss << indentStr(indent + 3) << "\"op\": \"" << to_string(node->op) << "\",\n";
 
         // Add name if present
         if (!node->name.empty()) {
@@ -223,29 +201,43 @@ std::string DFG::toJson(int indent) const {
         // Add inputs
         ss << indentStr(indent + 3) << "\"inputs\": [";
         for (size_t j = 0; j < node->in.size(); ++j) {
-            // Find the index of the input node
-            for (size_t k = 0; k < nodes.size(); ++k) {
-                if (nodes[k].get() == node->in[j].node) {
-                    if (node->in[j].port != 0) {
-                        ss << "{\"node\": " << k << ", \"port\": " << node->in[j].port << "}";
-                    } else {
-                        ss << k;
-                    }
-                    break;
-                }
+            if (j > 0) ss << ", ";
+            size_t k = nodeIndex.at(node->in[j].node);
+            if (node->in[j].port != 0) {
+                ss << "{\"node\": " << k << ", \"port\": " << node->in[j].port << "}";
+            } else {
+                ss << k;
             }
-            if (j < node->in.size() - 1) ss << ", ";
         }
         ss << "]\n";
 
         ss << indentStr(indent + 2) << "}";
-        if (i < nodes.size() - 1) ss << ",";
-        ss << "\n";
     }
 
-    ss << indentStr(indent + 1) << "]\n";
+    ss << "\n" << indentStr(indent + 1) << "]\n";
     ss << indentStr(indent) << "}";
     return ss.str();
+}
+
+std::string DFG::toJson(int indent) const {
+    return renderJson(indent, nullptr);
+}
+
+std::string DFG::toJsonCone(const DFGNode* root, int indent) const {
+    std::set<const DFGNode*> cone;
+    std::queue<const DFGNode*> q;
+    cone.insert(root);
+    q.push(root);
+    while (!q.empty()) {
+        const DFGNode* curr = q.front();
+        q.pop();
+        for (const auto& input : curr->in) {
+            if (cone.insert(input.node).second) {
+                q.push(input.node);
+            }
+        }
+    }
+    return renderJson(indent, &cone);
 }
 
 } // namespace custom_hdl
