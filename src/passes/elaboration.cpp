@@ -981,8 +981,16 @@ void resolveCaseStatementInPlace(
     // Build the selector expression node
     auto selectorNode = buildExprDFG(caseStatement->expr, ctx);
 
-    // Extract driver nodes from outputs and signals
-    // Skip aggregate nodes (in.size() > 1) which represent structural decomposition, not driven signals
+    // Helper to connect a signal (output or signal type)
+    auto connectSignalOrOutput = [&ctx](const std::string& name, DFGNode* driver) {
+        if (ctx.graph.outputs.contains(name)) {
+            ctx.graph.connectOutput(name, driver);
+        } else if (ctx.graph.signals.contains(name)) {
+            ctx.graph.connectSignal(name, driver);
+        }
+    };
+
+    // Snapshot current drivers (only signals with exactly one driver)
     auto getDrivers = [](const DFG& g) {
         std::unordered_map<std::string, DFGNode*> drivers;
         for (const auto& [outName, outNode] : g.outputs) {
@@ -998,39 +1006,65 @@ void resolveCaseStatementInPlace(
         return drivers;
     };
 
-    // Helper to connect a signal (output or signal type)
-    auto connectSignalOrOutput = [&ctx](const std::string& name, DFGNode* driver) {
-        if (ctx.graph.outputs.contains(name)) {
-            ctx.graph.connectOutput(name, driver);
-        } else if (ctx.graph.signals.contains(name)) {
-            ctx.graph.connectSignal(name, driver);
+    // Diff current graph state against a baseline, returning only changed drivers
+    auto getModifiedDrivers = [](const DFG& g,
+            const std::unordered_map<std::string, DFGNode*>& baseline) {
+        std::unordered_map<std::string, DFGNode*> modified;
+        for (const auto& [outName, outNode] : g.outputs) {
+            if (outNode->in.size() == 1) {
+                auto it = baseline.find(outName);
+                if (it == baseline.end() || it->second != outNode->in[0].node) {
+                    modified[outName] = outNode->in[0].node;
+                }
+            }
         }
+        for (const auto& [sigName, sigNode] : g.signals) {
+            if (sigNode->in.size() == 1) {
+                auto it = baseline.find(sigName);
+                if (it == baseline.end() || it->second != sigNode->in[0].node) {
+                    modified[sigName] = sigNode->in[0].node;
+                }
+            }
+        }
+        return modified;
     };
 
-    // Helper to restore drivers to fallback state
-    auto restoreDrivers = [&connectSignalOrOutput](const std::unordered_map<std::string, DFGNode*>& drivers) {
+    // Restore drivers to fallback state, and clear any signals that got
+    // connected during branch processing but weren't driven before the case
+    auto restoreDrivers = [&connectSignalOrOutput, &ctx](const std::unordered_map<std::string, DFGNode*>& drivers) {
         for (const auto& [name, driver] : drivers) {
             connectSignalOrOutput(name, driver);
+        }
+        for (const auto& [name, node] : ctx.graph.outputs) {
+            if (node->in.size() == 1 && !drivers.contains(name)) {
+                node->in.clear();
+            }
+        }
+        for (const auto& [name, node] : ctx.graph.signals) {
+            if (node->in.size() == 1 && !drivers.contains(name)) {
+                node->in.clear();
+            }
         }
     };
 
     const auto fallbackDrivers = getDrivers(ctx.graph);
 
-    // Collect info for each case
+    // Collect info for each case branch — drivers only contains signals
+    // actually modified in that branch (diff against fallback)
     struct CaseInfo {
         DFGNode* condition;  // selector == value
-        std::unordered_map<std::string, DFGNode*> drivers;
+        std::unordered_map<std::string, DFGNode*> drivers;  // only modified signals
     };
     std::vector<CaseInfo> normalCases;
+    std::set<int64_t> explicitCaseValues;
     std::optional<std::unordered_map<std::string, DFGNode*>> defaultDrivers;
 
     for (const auto* item : caseStatement->items) {
         if (item->kind == SyntaxKind::DefaultCaseItem) {
             const auto& defaultItem = item->as<DefaultCaseItemSyntax>();
-            // Reset to fallback state before processing
             restoreDrivers(fallbackDrivers);
             resolveStatementInPlace(&defaultItem.clause->as<StatementSyntax>(), ctx);
-            defaultDrivers = getDrivers(ctx.graph);
+            defaultDrivers = getModifiedDrivers(ctx.graph, fallbackDrivers);
         } else if (item->kind == SyntaxKind::StandardCaseItem) {
             const auto& caseItem = item->as<StandardCaseItemSyntax>();
 
@@ -1040,16 +1074,18 @@ void resolveCaseStatementInPlace(
             }
 
             // Build condition: selector == case_value
-            auto caseValueNode = buildExprDFG(caseItem.expressions[0], ctx);
+            auto* caseValueNode = buildExprDFG(caseItem.expressions[0], ctx);
             auto* conditionNode = ctx.graph.eq(selectorNode, caseValueNode);
             conditionNode->loc = resolveSourceLoc(*caseStatement, ctx.sm);
 
-            // Reset to fallback state before processing
-            restoreDrivers(fallbackDrivers);
+            // Track explicit case value for computing uncovered values
+            if (caseValueNode->op == DFGOp::CONST) {
+                explicitCaseValues.insert(std::get<int64_t>(caseValueNode->data));
+            }
 
-            // Process case body
+            restoreDrivers(fallbackDrivers);
             resolveStatementInPlace(&caseItem.clause->as<StatementSyntax>(), ctx);
-            normalCases.push_back({conditionNode, getDrivers(ctx.graph)});
+            normalCases.push_back({conditionNode, getModifiedDrivers(ctx.graph, fallbackDrivers)});
         } else {
             throw CompilerError(
                 "Unsupported case item kind: " + std::string(toString(item->kind)),
@@ -1057,22 +1093,16 @@ void resolveCaseStatementInPlace(
         }
     }
 
-    // Collect all signals that were assigned in any case
+    // Collect all signals that were assigned in any branch
     std::set<std::string> assignedSignals;
     for (const auto& c : normalCases) {
-        for (const auto& [name, driver] : c.drivers) {
-            auto it = fallbackDrivers.find(name);
-            if (it == fallbackDrivers.end() || driver != it->second) {
-                assignedSignals.insert(name);
-            }
+        for (const auto& [name, _] : c.drivers) {
+            assignedSignals.insert(name);
         }
     }
     if (defaultDrivers) {
-        for (const auto& [name, driver] : *defaultDrivers) {
-            auto it = fallbackDrivers.find(name);
-            if (it == fallbackDrivers.end() || driver != it->second) {
-                assignedSignals.insert(name);
-            }
+        for (const auto& [name, _] : *defaultDrivers) {
+            assignedSignals.insert(name);
         }
     }
 
@@ -1081,7 +1111,7 @@ void resolveCaseStatementInPlace(
         std::vector<DFGNode*> selectors;
         std::vector<DFGNode*> dataValues;
 
-        // Determine default/fallback value for this signal
+        // Determine default value: explicit default branch, then .q fallback for sequential
         DFGNode* defaultValue = nullptr;
         if (defaultDrivers) {
             auto it = defaultDrivers->find(signalName);
@@ -1089,11 +1119,17 @@ void resolveCaseStatementInPlace(
                 defaultValue = it->second;
             }
         }
-        if (!defaultValue) {
-            auto it = fallbackDrivers.find(signalName);
-            if (it != fallbackDrivers.end()) {
-                defaultValue = it->second;
+        if (!defaultValue && ctx.is_sequential) {
+            std::string qName = signalName;
+            if (qName.ends_with(".d")) {
+                qName = qName.substr(0, qName.length() - 2) + ".q";
             }
+            DFGNode* qNode = ctx.graph.lookupSignal(qName);
+            if (!qNode) {
+                throw CompilerError("Could not find .q signal: " + qName,
+                                    resolveSourceLoc(*caseStatement, ctx.sm));
+            }
+            defaultValue = qNode;
         }
 
         // Collect selectors and data values from each case
@@ -1104,21 +1140,6 @@ void resolveCaseStatementInPlace(
                 caseValue = it->second;
             } else if (defaultValue) {
                 caseValue = defaultValue;
-            } else if (ctx.is_sequential) {
-                // In sequential blocks, use .q as fallback (flop retains value)
-                std::string qName = signalName;
-                if (qName.ends_with(".d")) {
-                    qName = qName.substr(0, qName.length() - 2) + ".q";
-                }
-                // Look up the .q signal node
-                DFGNode* qNode = ctx.graph.lookupSignal(qName);
-                if (!qNode) {
-                    throw CompilerError("Could not find .q signal: " + qName,
-                                        resolveSourceLoc(*caseStatement, ctx.sm));
-                }
-                caseValue = qNode;
-                // Also set defaultValue so subsequent branches use the same node
-                defaultValue = caseValue;
             } else {
                 throw CompilerError(
                     "Signal '" + signalName + "' not assigned in all case branches and has no default/fallback",
@@ -1131,19 +1152,20 @@ void resolveCaseStatementInPlace(
 
         DFGNode* result;
         auto caseLoc = resolveSourceLoc(*caseStatement, ctx.sm);
-        if (defaultValue) {
-            // Compute default selector: none of the normal cases matched
-            DFGNode* selectorSum = selectors[0];
-            for (size_t i = 1; i < selectors.size(); ++i) {
-                selectorSum = ctx.graph.add(selectorSum, selectors[i]);
-                selectorSum->loc = caseLoc;
+
+        // Add selectors for uncovered case values (values not in any explicit branch)
+        if (defaultValue && selectorNode->hasType()) {
+            int width = selectorNode->type->width;
+            int64_t numValues = int64_t(1) << width;
+            for (int64_t v = 0; v < numValues; ++v) {
+                if (explicitCaseValues.contains(v)) continue;
+                auto* missingConst = ctx.graph.constant(v);
+                missingConst->loc = caseLoc;
+                auto* missingSel = ctx.graph.eq(selectorNode, missingConst);
+                missingSel->loc = caseLoc;
+                selectors.push_back(missingSel);
+                dataValues.push_back(defaultValue);
             }
-            auto* zeroNode = ctx.graph.constant(0);
-            zeroNode->loc = caseLoc;
-            DFGNode* defaultSel = ctx.graph.eq(selectorSum, zeroNode);
-            defaultSel->loc = caseLoc;
-            selectors.push_back(defaultSel);
-            dataValues.push_back(defaultValue);
         }
 
         if (selectors.size() == 1) {
