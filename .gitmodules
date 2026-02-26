@@ -7,3 +7,6 @@
 [submodule "external/cpp-vcd-tracer"]
 	path = external/cpp-vcd-tracer
 	url = git@github.com:nakane1chome/cpp-vcd-tracer.git
+[submodule "external/apb_gpio"]
+	path = external/apb_gpio
+	url = git@github.com:pulp-platform/apb_gpio.git
