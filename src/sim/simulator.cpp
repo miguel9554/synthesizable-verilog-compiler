@@ -320,11 +320,11 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
 
             // Vector indexing: array node is a SIGNAL with multiple inputs
             // (one per element). Select the value of the i-th input node.
+            // Use modulo to wrap out-of-range indices (replicates using lower N bits
+            // when the index variable is wider than needed).
             if (array_node->in.size() > 1) {
-                if (index < 0 || index >= static_cast<int64_t>(array_node->in.size()))
-                    throw CompilerError(std::format(
-                        "Simulator: INDEX out of bounds: {} has {} elements, index={}",
-                        array_node->name, array_node->in.size(), index), node);
+                int64_t n = static_cast<int64_t>(array_node->in.size());
+                index = ((index % n) + n) % n;
                 return values_.at(array_node->in[index].node);
             }
 
