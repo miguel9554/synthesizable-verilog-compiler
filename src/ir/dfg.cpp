@@ -11,8 +11,16 @@ std::string DFG::renderDot(const std::string& graphName,
                            const std::set<const DFGNode*>& errorNodes,
                            const std::set<const DFGNode*>* filter) const {
     std::ostringstream ss;
-    ss << "digraph " << graphName << " {\n";
-    ss << "  rankdir=TB;\n";
+    // Sanitize graph name: replace characters invalid in DOT identifiers
+    std::string safeName = graphName;
+    for (auto& c : safeName) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
+            c = '_';
+        }
+    }
+    ss << "digraph " << safeName << " {\n";
+    ss << "  rankdir=LR;\n";
+    ss << "  splines=polyline;\n";
     ss << "  node [shape=record];\n\n";
 
     // Build node index map
@@ -97,16 +105,42 @@ std::string DFG::renderDot(const std::string& graphName,
 
     ss << "\n";
 
+    // Returns the label for the j-th input edge of a MUX/MUX_N node
+    auto inputLabel = [](DFGOp op, size_t j, size_t totalInputs) -> std::string {
+        switch (op) {
+            case DFGOp::MUX:
+                if (j == 0) return "sel";
+                if (j == 1) return "T";
+                if (j == 2) return "F";
+                break;
+            case DFGOp::MUX_N: {
+                size_t nSel = totalInputs / 2;
+                if (j < nSel) return "sel" + std::to_string(j);
+                return "d" + std::to_string(j - nSel);
+            }
+            default:
+                break;
+        }
+        return "";
+    };
+
     // Output edges
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
         if (filter && !filter->count(node.get())) continue;
 
-        for (const auto& input : node->in) {
+        for (size_t j = 0; j < node->in.size(); ++j) {
+            const auto& input = node->in[j];
             if (filter && !filter->count(input.node)) continue;
             ss << "  n" << nodeIndex.at(input.node) << " -> n" << i;
+            std::string label = inputLabel(node->op, j, node->in.size());
             if (input.port != 0) {
-                ss << " [label=\"port " << input.port << "\"]";
+                label = label.empty()
+                    ? "port " + std::to_string(input.port)
+                    : label + " (port " + std::to_string(input.port) + ")";
+            }
+            if (!label.empty()) {
+                ss << " [label=\"" << label << "\"]";
             }
             ss << ";\n";
         }
