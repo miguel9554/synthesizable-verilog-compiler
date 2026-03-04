@@ -489,6 +489,79 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
                               std::chrono::system_clock::from_time_t(0));
 }
 
+void Simulator::setupVcdFlat(std::ofstream& vcd_out) {
+    vcd_flat_top_ = std::make_unique<vcd_tracer::top>(module_.name);
+
+    auto getWidth = [](const DFGNode* node) -> unsigned int {
+        if (node->type.has_value() && node->type->width > 0)
+            return static_cast<unsigned int>(node->type->width);
+        return 64;
+    };
+
+    auto elaborateWithWidth = [](vcd_tracer::module& mod, vcd_tracer::value_base& var,
+                                 std::string_view name, unsigned int width) {
+        auto original_add_fn = mod.get_add_fn();
+        auto override_fn = [original_add_fn, width](
+                std::string_view var_name, std::string_view var_type,
+                unsigned int /*bit_size*/, vcd_tracer::scope_fn::dumper_fn fn)
+                -> vcd_tracer::value_context {
+            return original_add_fn(var_name, var_type, width, fn);
+        };
+        var.elaborate(override_fn, name);
+    };
+
+    // All signals go directly into the root module (no sub-scopes)
+    for (const auto& [name, node] : module_.dfg->inputs) {
+        unsigned int w = getWidth(node);
+        auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+        elaborateWithWidth(vcd_flat_top_->root, *v, name, w);
+        v->set_runtime_bit_size(w);
+        vcd_flat_values_[node] = std::move(v);
+    }
+
+    for (const auto& name : async_inputs_) {
+        if (module_.dfg->inputs.count(name)) continue;
+        auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+        elaborateWithWidth(vcd_flat_top_->root, *v, name, 1);
+        v->set_runtime_bit_size(1);
+        vcd_flat_async_values_[name] = std::move(v);
+    }
+
+    for (const auto& [name, node] : module_.dfg->signals) {
+        unsigned int w = getWidth(node);
+        auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+        elaborateWithWidth(vcd_flat_top_->root, *v, name, w);
+        v->set_runtime_bit_size(w);
+        vcd_flat_values_[node] = std::move(v);
+    }
+
+    for (const auto& [name, node] : module_.dfg->outputs) {
+        unsigned int w = getWidth(node);
+        auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+        elaborateWithWidth(vcd_flat_top_->root, *v, name, w);
+        v->set_runtime_bit_size(w);
+        vcd_flat_values_[node] = std::move(v);
+    }
+
+    vcd_flat_top_->finalize_header(vcd_out,
+                                   std::chrono::system_clock::from_time_t(0));
+}
+
+void Simulator::updateVcdValuesFlat(std::ofstream& vcd_out, int64_t time_ns,
+                                    const std::map<std::string, int64_t>& async_values) {
+    vcd_flat_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{time_ns});
+
+    for (auto& [node, vcd_val] : vcd_flat_values_) {
+        vcd_val->set(values_.at(node));
+    }
+    for (auto& [name, vcd_val] : vcd_flat_async_values_) {
+        auto it = async_values.find(name);
+        if (it != async_values.end()) {
+            vcd_val->set(it->second);
+        }
+    }
+}
+
 void Simulator::updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
                                 const std::map<std::string, int64_t>& async_values) {
     // Advance time first: this dumps any pending values from the previous step
@@ -555,6 +628,7 @@ void Simulator::run() {
 
     // === VCD Setup ===
     std::filesystem::create_directories(config_.output_dir);
+
     std::string vcd_path = config_.output_dir + "/" + module_.name + ".vcd";
     std::ofstream vcd_out(vcd_path);
     if (!vcd_out.is_open()) {
@@ -562,6 +636,14 @@ void Simulator::run() {
             "Simulator: cannot open VCD output file '{}'", vcd_path));
     }
     setupVcd(vcd_out);
+
+    std::string vcd_flat_path = config_.output_dir + "/" + module_.name + "-flatten.vcd";
+    std::ofstream vcd_flat_out(vcd_flat_path);
+    if (!vcd_flat_out.is_open()) {
+        throw CompilerError(std::format(
+            "Simulator: cannot open flat VCD output file '{}'", vcd_flat_path));
+    }
+    setupVcdFlat(vcd_flat_out);
 
     // === Initialization (time 0) ===
 
@@ -638,6 +720,7 @@ void Simulator::run() {
 
     // VCD: trace initial state at time 0
     updateVcdValues(vcd_out, 0, async_prev);
+    updateVcdValuesFlat(vcd_flat_out, 0, async_prev);
 
     std::cout << "Simulator: initialization complete, processing "
               << timeline_.size() << " async events" << std::endl;
@@ -745,6 +828,7 @@ void Simulator::run() {
 
         // 6. VCD: trace all values at every time step
         updateVcdValues(vcd_out, batch_time, async_prev);
+        updateVcdValuesFlat(vcd_flat_out, batch_time, async_prev);
 
         // 7. Record output values only on clock edges (for text output)
         if (any_clock_edge) {
@@ -755,8 +839,10 @@ void Simulator::run() {
     // Flush last pending VCD values at the final event time
     if (!timeline_.empty()) {
         vcd_top_->time_update_abs(vcd_out, std::chrono::nanoseconds{timeline_.back().time});
+        vcd_flat_top_->time_update_abs(vcd_flat_out, std::chrono::nanoseconds{timeline_.back().time});
     }
     vcd_out.close();
+    vcd_flat_out.close();
 
     // Write text output files
     writeOutputFiles();
@@ -766,6 +852,7 @@ void Simulator::run() {
               << std::endl;
     std::cout << "Simulator: output written to '" << config_.output_dir << "/'" << std::endl;
     std::cout << "Simulator: VCD trace written to '" << vcd_path << "'" << std::endl;
+    std::cout << "Simulator: flat VCD trace written to '" << vcd_flat_path << "'" << std::endl;
 }
 
 } // namespace custom_hdl

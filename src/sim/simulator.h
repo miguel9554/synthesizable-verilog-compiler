@@ -60,15 +60,22 @@ private:
     // Output recording
     std::map<std::string, std::vector<int64_t>> recorded_values_;
 
-    // VCD tracing
+    // VCD tracing (hierarchical: inputs/signals/outputs sub-scopes)
     std::unique_ptr<vcd_tracer::top> vcd_top_;
     std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_values_;
-    // Async-only signals (clocks/resets not in DFG) traced by name
     std::map<std::string, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_async_values_;
 
+    // VCD tracing (flat: all signals at root level, for comparison with Verilator)
+    std::unique_ptr<vcd_tracer::top> vcd_flat_top_;
+    std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_flat_values_;
+    std::map<std::string, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_flat_async_values_;
+
     void setupVcd(std::ofstream& vcd_out);
+    void setupVcdFlat(std::ofstream& vcd_out);
     void updateVcdValues(std::ofstream& vcd_out, int64_t time_ns,
                          const std::map<std::string, int64_t>& async_values);
+    void updateVcdValuesFlat(std::ofstream& vcd_out, int64_t time_ns,
+                             const std::map<std::string, int64_t>& async_values);
 
     void buildTopology();
     void buildTimeline();
