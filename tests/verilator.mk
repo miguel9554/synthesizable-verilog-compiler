@@ -1,4 +1,4 @@
-.PHONY: simulate clean
+.PHONY: simulate clean force
 
 # Waveform database name
 WAVES = waves.vcd
@@ -18,19 +18,25 @@ TOP_MODULE = tb
 OUT = obj_dir/V$(TOP_MODULE)
 
 VERILATOR_WARNS ?= -Wno-TIMESCALEMOD -Wno-WIDTHTRUNC
+VERILATOR_OPTS ?= --trace --binary --x-initial unique
+
+# seed 0 uses a random seed
+SEED_ARG = $(if $(seed),+verilator+seed+$(seed))
 
 # Default target
 all: simulate
 
 # Compile the TB and RTL
 $(OUT): $(SRCS)
-	verilator --trace --binary $(VERILATOR_WARNS) --top $(TOP_MODULE) $(SRCS)
+	verilator $(VERILATOR_OPTS) $(VERILATOR_WARNS) --top $(TOP_MODULE) $(SRCS)
 
 # Generate waves database
-$(WAVES): $(OUT)
-	./obj_dir/V$(TOP_MODULE) +WAVES=$(WAVES)
+$(WAVES): $(OUT) force
+	./obj_dir/V$(TOP_MODULE) +WAVES=$(WAVES) $(SEED_ARG)
 
 simulate: $(WAVES)
+
+force:
 
 clean:
 	rm -rf obj_dir $(WAVES)

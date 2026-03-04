@@ -10,3 +10,6 @@
 [submodule "external/apb_gpio"]
 	path = external/apb_gpio
 	url = git@github.com:pulp-platform/apb_gpio.git
+[submodule "external/verilog-vcd-parser"]
+	path = external/verilog-vcd-parser
+	url = git@github.com:ben-marshall/verilog-vcd-parser.git
