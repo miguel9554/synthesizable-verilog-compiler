@@ -446,10 +446,50 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         var.elaborate(override_fn, name);
     };
 
+    // Build set of flop .d/.q signal names to exclude from the signals scope,
+    // and collect .q signals to trace under the flops scope.
+    // Detect flop pairs by finding signals ending in .d that have a .q counterpart.
+    std::set<std::string> flop_signal_names;
+    std::map<std::string, const DFGNode*> flop_q_entries;  // base name -> .q node
+    for (const auto& [name, node] : module_.dfg->signals) {
+        if (name.size() > 2 && name.substr(name.size() - 2) == ".d") {
+            std::string base = name.substr(0, name.size() - 2);
+            auto qit = module_.dfg->signals.find(base + ".q");
+            if (qit != module_.dfg->signals.end()) {
+                flop_signal_names.insert(name);
+                flop_signal_names.insert(base + ".q");
+                flop_q_entries[base] = qit->second;
+            }
+        }
+    }
+
+    // Helper: elaborate params into a scope and set their constant values
+    auto elaborateParams = [&](vcd_tracer::module& mod,
+                               std::vector<std::unique_ptr<vcd_tracer::value<int64_t>>>& dest) {
+        for (const auto& param : module_.parameters) {
+            unsigned int w = param.type.width > 0 ? static_cast<unsigned int>(param.type.width) : 32;
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+            elaborateWithWidth(mod, *v, param.name, w);
+            v->set_runtime_bit_size(w);
+            v->set(static_cast<int64_t>(param.value));
+            dest.push_back(std::move(v));
+        }
+        for (const auto& param : module_.localparams) {
+            unsigned int w = param.type.width > 0 ? static_cast<unsigned int>(param.type.width) : 32;
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+            elaborateWithWidth(mod, *v, param.name, w);
+            v->set_runtime_bit_size(w);
+            v->set(static_cast<int64_t>(param.value));
+            dest.push_back(std::move(v));
+        }
+    };
+
     {
         vcd_tracer::module inputs_mod(vcd_top_->root, "inputs");
         vcd_tracer::module signals_mod(vcd_top_->root, "signals");
+        vcd_tracer::module flops_mod(vcd_top_->root, "flops");
         vcd_tracer::module outputs_mod(vcd_top_->root, "outputs");
+        vcd_tracer::module params_mod(vcd_top_->root, "params");
 
         for (const auto& [name, node] : module_.dfg->inputs) {
             unsigned int w = getWidth(node);
@@ -469,11 +509,21 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         }
 
         for (const auto& [name, node] : module_.dfg->signals) {
+            if (flop_signal_names.count(name)) continue;  // skip flop .d/.q
             unsigned int w = getWidth(node);
             auto v = std::make_unique<vcd_tracer::value<int64_t>>();
             elaborateWithWidth(signals_mod, *v, name, w);
             v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
+        }
+
+        // Flops: trace .q value under the bare flop name
+        for (const auto& [base_name, qnode] : flop_q_entries) {
+            unsigned int w = getWidth(qnode);
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+            elaborateWithWidth(flops_mod, *v, base_name, w);
+            v->set_runtime_bit_size(w);
+            vcd_values_[qnode] = std::move(v);
         }
 
         for (const auto& [name, node] : module_.dfg->outputs) {
@@ -483,6 +533,8 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
             v->set_runtime_bit_size(w);
             vcd_values_[node] = std::move(v);
         }
+
+        elaborateParams(params_mod, vcd_params_);
     }
 
     vcd_top_->finalize_header(vcd_out,
@@ -510,6 +562,21 @@ void Simulator::setupVcdFlat(std::ofstream& vcd_out) {
         var.elaborate(override_fn, name);
     };
 
+    // Detect flop .d/.q pairs to exclude
+    std::set<std::string> flop_signal_names;
+    std::map<std::string, const DFGNode*> flop_q_entries;  // base name -> .q node
+    for (const auto& [name, node] : module_.dfg->signals) {
+        if (name.size() > 2 && name.substr(name.size() - 2) == ".d") {
+            std::string base = name.substr(0, name.size() - 2);
+            auto qit = module_.dfg->signals.find(base + ".q");
+            if (qit != module_.dfg->signals.end()) {
+                flop_signal_names.insert(name);
+                flop_signal_names.insert(base + ".q");
+                flop_q_entries[base] = qit->second;
+            }
+        }
+    }
+
     // All signals go directly into the root module (no sub-scopes)
     for (const auto& [name, node] : module_.dfg->inputs) {
         unsigned int w = getWidth(node);
@@ -528,11 +595,21 @@ void Simulator::setupVcdFlat(std::ofstream& vcd_out) {
     }
 
     for (const auto& [name, node] : module_.dfg->signals) {
+        if (flop_signal_names.count(name)) continue;  // skip flop .d/.q
         unsigned int w = getWidth(node);
         auto v = std::make_unique<vcd_tracer::value<int64_t>>();
         elaborateWithWidth(vcd_flat_top_->root, *v, name, w);
         v->set_runtime_bit_size(w);
         vcd_flat_values_[node] = std::move(v);
+    }
+
+    // Flops: trace .q value under the bare flop name
+    for (const auto& [base_name, qnode] : flop_q_entries) {
+        unsigned int w = getWidth(qnode);
+        auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+        elaborateWithWidth(vcd_flat_top_->root, *v, base_name, w);
+        v->set_runtime_bit_size(w);
+        vcd_flat_values_[qnode] = std::move(v);
     }
 
     for (const auto& [name, node] : module_.dfg->outputs) {
@@ -541,6 +618,18 @@ void Simulator::setupVcdFlat(std::ofstream& vcd_out) {
         elaborateWithWidth(vcd_flat_top_->root, *v, name, w);
         v->set_runtime_bit_size(w);
         vcd_flat_values_[node] = std::move(v);
+    }
+
+    // Params: set constant values at elaboration time
+    for (const auto* params : {&module_.parameters, &module_.localparams}) {
+        for (const auto& param : *params) {
+            unsigned int w = param.type.width > 0 ? static_cast<unsigned int>(param.type.width) : 32;
+            auto v = std::make_unique<vcd_tracer::value<int64_t>>();
+            elaborateWithWidth(vcd_flat_top_->root, *v, param.name, w);
+            v->set_runtime_bit_size(w);
+            v->set(static_cast<int64_t>(param.value));
+            vcd_flat_params_.push_back(std::move(v));
+        }
     }
 
     vcd_flat_top_->finalize_header(vcd_out,

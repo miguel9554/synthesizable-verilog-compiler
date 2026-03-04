@@ -64,11 +64,13 @@ private:
     std::unique_ptr<vcd_tracer::top> vcd_top_;
     std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_values_;
     std::map<std::string, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_async_values_;
+    std::vector<std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_params_;
 
     // VCD tracing (flat: all signals at root level, for comparison with Verilator)
     std::unique_ptr<vcd_tracer::top> vcd_flat_top_;
     std::map<const DFGNode*, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_flat_values_;
     std::map<std::string, std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_flat_async_values_;
+    std::vector<std::unique_ptr<vcd_tracer::value<int64_t>>> vcd_flat_params_;
 
     void setupVcd(std::ofstream& vcd_out);
     void setupVcdFlat(std::ofstream& vcd_out);
