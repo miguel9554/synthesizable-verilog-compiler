@@ -44,3 +44,6 @@ clean: clean_project
 # Clean all artifacts including slang
 clean_all:
 	cmake --build build --target clean
+
+vcd-diff:
+	./build/scratchpad/vcd-compare/vcd_compare $(vcd1) $(vcd2)
