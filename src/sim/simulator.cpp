@@ -463,6 +463,19 @@ void Simulator::setupVcd(std::ofstream& vcd_out) {
         }
     }
 
+    // Remove vector parent entries that have indexed children (e.g. remove
+    // "my_vector_flop" when "my_vector_flop[0]" exists), since the parent
+    // is just the aggregate — only the individual elements should be traced.
+    std::vector<std::string> parents_to_remove;
+    for (const auto& [base, _] : flop_q_entries) {
+        if (flop_q_entries.count(base + "[0]")) {
+            parents_to_remove.push_back(base);
+        }
+    }
+    for (const auto& p : parents_to_remove) {
+        flop_q_entries.erase(p);
+    }
+
     // Helper: elaborate params into a scope and set their constant values
     auto elaborateParams = [&](vcd_tracer::module& mod,
                                std::vector<std::unique_ptr<vcd_tracer::value<int64_t>>>& dest) {
@@ -575,6 +588,17 @@ void Simulator::setupVcdFlat(std::ofstream& vcd_out) {
                 flop_q_entries[base] = qit->second;
             }
         }
+    }
+
+    // Remove vector parent entries that have indexed children
+    std::vector<std::string> parents_to_remove;
+    for (const auto& [base, _] : flop_q_entries) {
+        if (flop_q_entries.count(base + "[0]")) {
+            parents_to_remove.push_back(base);
+        }
+    }
+    for (const auto& p : parents_to_remove) {
+        flop_q_entries.erase(p);
     }
 
     // All signals go directly into the root module (no sub-scopes)
