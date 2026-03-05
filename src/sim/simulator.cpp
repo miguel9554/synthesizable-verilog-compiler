@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -151,6 +152,54 @@ void Simulator::buildTopology() {
     }
 }
 
+// Parse a time token like "5ns" or "1.5us" into integer nanoseconds.
+static int64_t parseTimeWithUnit(const std::string& token,
+                                 const std::string& file_path,
+                                 const std::string& line) {
+    // Find where the unit suffix starts (scan from end for alphabetic chars)
+    size_t unit_start = token.size();
+    while (unit_start > 0 && std::isalpha(static_cast<unsigned char>(token[unit_start - 1]))) {
+        --unit_start;
+    }
+
+    if (unit_start == 0 || unit_start == token.size()) {
+        throw CompilerError(std::format(
+            "Simulator: bad time token '{}' in '{}' (line: {})"
+            " — expected <number><unit> like 5ns or 1.5us",
+            token, file_path, line));
+    }
+
+    std::string num_str = token.substr(0, unit_start);
+    std::string unit    = token.substr(unit_start);
+
+    double value;
+    try {
+        size_t pos;
+        value = std::stod(num_str, &pos);
+        if (pos != num_str.size()) throw std::invalid_argument("trailing chars");
+    } catch (...) {
+        throw CompilerError(std::format(
+            "Simulator: cannot parse number '{}' in time token '{}' (file '{}', line: {})",
+            num_str, token, file_path, line));
+    }
+
+    double multiplier;
+    if      (unit == "s")  multiplier = 1e9;
+    else if (unit == "ms") multiplier = 1e6;
+    else if (unit == "us") multiplier = 1e3;
+    else if (unit == "ns") multiplier = 1.0;
+    else if (unit == "ps") multiplier = 1e-3;
+    else if (unit == "fs") multiplier = 1e-6;
+    else {
+        throw CompilerError(std::format(
+            "Simulator: unknown time unit '{}' in token '{}' (file '{}', line: {})"
+            " — supported: s, ms, us, ns, ps, fs",
+            unit, token, file_path, line));
+    }
+
+    return static_cast<int64_t>(std::round(value * multiplier));
+}
+
 // ============================================================================
 // Build async event timeline from clock/reset input files
 // ============================================================================
@@ -182,11 +231,13 @@ void Simulator::buildTimeline() {
         while (std::getline(file, line)) {
             if (line.empty() || line[0] == '#') continue;
             std::istringstream iss(line);
-            int64_t time, value;
-            if (!(iss >> time >> value)) {
+            std::string time_token;
+            int64_t value;
+            if (!(iss >> time_token >> value)) {
                 throw CompilerError(std::format(
                     "Simulator: bad line in async file '{}': {}", it->second, line));
             }
+            int64_t time = parseTimeWithUnit(time_token, it->second, line);
             timeline_.push_back({time, name, value});
         }
     }

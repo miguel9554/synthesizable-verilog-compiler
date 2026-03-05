@@ -273,6 +273,8 @@ module tb;
         $finish;
     end
 
+    initial $timeformat(-9, -12, "ns", 10);
+
     // Waveform dump
     initial begin
         string database_name;
