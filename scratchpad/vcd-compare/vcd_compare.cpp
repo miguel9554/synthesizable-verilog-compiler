@@ -258,7 +258,18 @@ int main(int argc, char *argv[]) {
             std::string s1 = value_to_string(v1);
             std::string s2 = value_to_string(v2);
 
-            if (s1 == s2) {
+            // Normalize: strip leading zeros so that e.g. "00000000" == "0"
+            // and "01000" == "00000000000000000000000000001000".
+            // Keep at least one character. Only strip '0', not 'x'/'z'.
+            auto strip_leading_zeros = [](const std::string &s) -> std::string {
+                size_t start = s.find_first_not_of('0');
+                if (start == std::string::npos) return "0";
+                return s.substr(start);
+            };
+            std::string n1 = strip_leading_zeros(s1);
+            std::string n2 = strip_leading_zeros(s2);
+
+            if (n1 == n2) {
                 total_match++;
             } else {
                 total_diff++;
