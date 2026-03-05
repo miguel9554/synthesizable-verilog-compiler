@@ -90,7 +90,11 @@ std::string DFG::renderDot(const std::string& graphName,
 
         // Append type info if available
         if (node->hasType()) {
-            ss << "\\n[" << node->type->width;
+            ss << "\\n[";
+            for (const auto& dim : node->type->unpacked_dims) {
+                ss << dim.size() << "x";
+            }
+            ss << node->type->width;
             ss << (node->type->isSigned() ? "s" : "u") << "]";
         }
         if (node->loc) {
