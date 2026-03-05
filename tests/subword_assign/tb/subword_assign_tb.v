@@ -41,6 +41,8 @@ module tb;
         $finish;
     end
 
+    initial $timeformat(-9, -12, "ns", 10);
+
     initial begin
         string database_name;
         if (!$value$plusargs("WAVES=%s", database_name)) begin
