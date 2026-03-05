@@ -10,6 +10,8 @@
 
 namespace custom_hdl {
 
+enum class FlopsInitial { Random, AllZeros, AllOnes };
+
 struct SimConfig {
     std::string source_file;
     std::string top_module;
@@ -17,6 +19,8 @@ struct SimConfig {
     std::string output_dir;
     std::map<std::string, int64_t> parameters;        // parameter_name -> value (overrides)
     std::vector<std::string> debug_dfg_nodes;           // node names to dump fanin cone DOTs
+    FlopsInitial flops_initial = FlopsInitial::Random;
+    std::optional<uint64_t> flops_initial_seed;         // if nullopt, use random system seed
 };
 
 SimConfig parseSimConfig(const std::string& yaml_path);

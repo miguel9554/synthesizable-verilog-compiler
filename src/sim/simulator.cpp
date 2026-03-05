@@ -53,6 +53,26 @@ SimConfig parseSimConfig(const std::string& yaml_path) {
         }
     }
 
+    if (root["flops-initial"]) {
+        auto fi = root["flops-initial"];
+        if (!fi["mode"])
+            throw CompilerError("Sim config: flops-initial requires 'mode' key");
+        std::string mode = fi["mode"].as<std::string>();
+
+        if (mode == "random") {
+            config.flops_initial = FlopsInitial::Random;
+            if (fi["seed"])
+                config.flops_initial_seed = fi["seed"].as<uint64_t>();
+        } else if (mode == "zeros") {
+            config.flops_initial = FlopsInitial::AllZeros;
+        } else if (mode == "ones") {
+            config.flops_initial = FlopsInitial::AllOnes;
+        } else {
+            throw CompilerError(std::format(
+                "Sim config: invalid flops-initial mode '{}' (expected: random, zeros, ones)", mode));
+        }
+    }
+
     return config;
 }
 
@@ -779,12 +799,25 @@ void Simulator::run() {
         }
     }
 
-    // 2. Set flop .q to random values (deterministic seed=42)
-    std::mt19937_64 rng(42);
-    for (const auto& [qnode, flop] : flop_q_nodes_) {
-        int w = flop->type.type.width;
-        uint64_t mask = (w == 64) ? ~0ULL : (1ULL << w) - 1;
-        values_[qnode] = static_cast<int64_t>(rng() & mask);
+    // 2. Set flop .q initial values
+    uint64_t rng_seed = 0;
+    {
+        if (config_.flops_initial == FlopsInitial::Random) {
+            rng_seed = config_.flops_initial_seed.value_or(std::random_device{}());
+            std::mt19937_64 rng(rng_seed);
+            for (const auto& [qnode, flop] : flop_q_nodes_) {
+                int w = flop->type.type.width;
+                uint64_t mask = (w == 64) ? ~0ULL : (1ULL << w) - 1;
+                values_[qnode] = static_cast<int64_t>(rng() & mask);
+            }
+        } else {
+            for (const auto& [qnode, flop] : flop_q_nodes_) {
+                int w = flop->type.type.width;
+                uint64_t mask = (w == 64) ? ~0ULL : (1ULL << w) - 1;
+                values_[qnode] = (config_.flops_initial == FlopsInitial::AllOnes)
+                    ? static_cast<int64_t>(mask) : 0;
+            }
+        }
     }
 
     // 3. Set async input values from first event in their timeline (must be at time 0)
@@ -975,6 +1008,9 @@ void Simulator::run() {
     std::cout << "Simulator: simulation complete. "
               << recorded_values_.begin()->second.size() << " cycles recorded."
               << std::endl;
+    if (config_.flops_initial == FlopsInitial::Random) {
+        std::cout << "Simulator: flops-initial seed = " << rng_seed << std::endl;
+    }
     std::cout << "Simulator: output written to '" << config_.output_dir << "/'" << std::endl;
     std::cout << "Simulator: VCD trace written to '" << vcd_path << "'" << std::endl;
     std::cout << "Simulator: flat VCD trace written to '" << vcd_flat_path << "'" << std::endl;
