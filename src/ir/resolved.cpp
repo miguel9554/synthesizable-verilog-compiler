@@ -15,12 +15,14 @@ namespace custom_hdl {
 // ============================================================================
 
 ResolvedType ResolvedType::makeInteger(int width, bool is_signed,
-                                       std::vector<ResolvedDimension> packed_dims) {
+                                       std::vector<ResolvedDimension> packed_dims,
+                                       std::vector<ResolvedDimension> unpacked_dims) {
     return ResolvedType{
         .kind = ResolvedTypeKind::Integer,
         .width = width,
         .metadata = ResolvedIntegerInfo{.is_signed = is_signed},
-        .packed_dims = std::move(packed_dims)
+        .packed_dims = std::move(packed_dims),
+        .unpacked_dims = std::move(unpacked_dims)
     };
 }
 
@@ -79,7 +81,7 @@ void FlopInfo::print(std::ostream& os, int indent) const {
 void ResolvedSignalBase::print(std::ostream& os) const {
     os << name << ": ";
     type.print(os);
-    for (const auto& dim : dimensions) {
+    for (const auto& dim : type.unpacked_dims) {
         os << "[" << dim.left << ":" << dim.right << "]";
     }
 }

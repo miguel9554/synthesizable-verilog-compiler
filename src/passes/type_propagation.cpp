@@ -232,27 +232,34 @@ static bool tryInferType(DFGNode* node) {
             auto* array = node->in[0].node;
             if (!array->hasType()) return false;
 
-            // Vector indexing: array node is a SIGNAL with multiple inputs
-            // (one per element). Result type = array's element type (unchanged).
-            if (array->in.size() > 1) {
-                node->type = *array->type;
+            const auto& atype = *array->type;
+
+            // Unpacked dimension indexing (vector select): peel one unpacked dim,
+            // keep packed dims and width unchanged.
+            if (!atype.unpacked_dims.empty()) {
+                std::vector<ResolvedDimension> remaining_unpacked(
+                    atype.unpacked_dims.begin() + 1, atype.unpacked_dims.end());
+                node->type = ResolvedType::makeInteger(
+                    atype.width, atype.isSigned(), atype.packed_dims, remaining_unpacked);
                 return true;
             }
 
-            // Bit-select: peel the outermost packed dimension
-            const auto& pdims = array->type->packed_dims;
-            if (!pdims.empty()) {
-                // Remove outermost dimension, recompute width from remaining
-                std::vector<ResolvedDimension> remaining(pdims.begin() + 1, pdims.end());
+            // Packed dimension indexing (bit-select): peel one packed dim,
+            // recompute width from remaining packed dims.
+            if (!atype.packed_dims.empty()) {
+                std::vector<ResolvedDimension> remaining(
+                    atype.packed_dims.begin() + 1, atype.packed_dims.end());
                 int new_width = 1;
                 for (const auto& d : remaining) {
                     new_width *= d.size();
                 }
-                node->type = ResolvedType::makeInteger(new_width, array->type->isSigned(), remaining);
-            } else {
-                // No packed dims — single-bit select fallback
-                node->type = ResolvedType::makeInteger(1, false);
+                node->type = ResolvedType::makeInteger(
+                    new_width, atype.isSigned(), remaining);
+                return true;
             }
+
+            // No dimensions — single-bit select fallback
+            node->type = ResolvedType::makeInteger(1, false);
             return true;
         }
     }

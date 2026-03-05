@@ -35,11 +35,13 @@ struct ResolvedType {
     int width = 0;
     ResolvedTypeMetadata metadata;
     std::vector<ResolvedDimension> packed_dims;
+    std::vector<ResolvedDimension> unpacked_dims;
 
     void print(std::ostream& os) const;
 
     static ResolvedType makeInteger(int width, bool is_signed,
-                                    std::vector<ResolvedDimension> packed_dims = {});
+                                    std::vector<ResolvedDimension> packed_dims = {},
+                                    std::vector<ResolvedDimension> unpacked_dims = {});
 
     bool isSigned() const {
         if (std::holds_alternative<ResolvedIntegerInfo>(metadata)) {

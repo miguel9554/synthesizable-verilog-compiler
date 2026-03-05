@@ -28,7 +28,6 @@ typedef struct {
 struct ResolvedSignalBase {
     std::string name;
     ResolvedType type;
-    std::vector<ResolvedDimension> dimensions;
 
     void print(std::ostream& os) const;
 };

@@ -39,7 +39,7 @@ std::vector<std::string> generateIndexSuffixes(const std::vector<ResolvedDimensi
 std::vector<std::string> allElements(const ResolvedSignal& signal) {
     std::vector<std::string> current = {signal.name};
 
-    for (const auto& dimension : signal.dimensions) {
+    for (const auto& dimension : signal.type.unpacked_dims) {
         std::vector<std::string> next;
         int start = std::min(dimension.left, dimension.right);
         int end = std::max(dimension.left, dimension.right);
@@ -205,14 +205,14 @@ void resolveFlops(ResolvedModule& resolved) {
     // Connect flop outputs to their .q signals
     for (const auto& output : resolved.outputs) {
         if (resolved.flopsTriggers.contains(output.name)) {
-            if (output.dimensions.empty()) {
+            if (output.type.unpacked_dims.empty()) {
                 std::string qName = output.name + ".q";
                 DFGNode* qNode = graph.lookupSignal(qName);
                 if (qNode) {
                     graph.connectOutput(output.name, qNode);
                 }
             } else {
-                for (const auto& suffix : generateIndexSuffixes(output.dimensions)) {
+                for (const auto& suffix : generateIndexSuffixes(output.type.unpacked_dims)) {
                     std::string elemOutput = output.name + suffix;
                     std::string elemQ = output.name + suffix + ".q";
                     DFGNode* qNode = graph.lookupSignal(elemQ);

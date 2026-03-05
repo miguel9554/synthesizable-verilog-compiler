@@ -318,17 +318,15 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
             const DFGNode* array_node = node->in[0].node;
             int64_t index = getVal(1);
 
-            // Vector indexing: array node is a SIGNAL with multiple inputs
-            // (one per element). Select the value of the i-th input node.
-            // Use modulo to wrap out-of-range indices (replicates using lower N bits
-            // when the index variable is wider than needed).
-            if (array_node->in.size() > 1) {
+            // Vector indexing (unpacked dimension): select the value of the
+            // i-th input node. Use modulo to wrap out-of-range indices.
+            if (array_node->type.has_value() && !array_node->type->unpacked_dims.empty()) {
                 int64_t n = static_cast<int64_t>(array_node->in.size());
                 index = ((index % n) + n) % n;
                 return values_.at(array_node->in[index].node);
             }
 
-            // Bit-select: extract elem_width bits using packed dimension bounds
+            // Bit-select (packed dimension): extract elem_width bits
             int64_t array_val = getVal(0);
             int elem_width = 1;
             if (node->type.has_value()) {

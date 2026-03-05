@@ -1330,11 +1330,11 @@ ResolvedSignal resolveSignal(const UnresolvedSignal& signal, const ParameterCont
         ctx);
 
 
-    if (signal.dimensions.syntax) resolved.dimensions = ResolveDimensions(*signal.dimensions.syntax, ctx);
+    if (signal.dimensions.syntax) resolved.type.unpacked_dims = ResolveDimensions(*signal.dimensions.syntax, ctx);
 
     // For some reason getting 1 dimension of [0:0]
-    if(resolved.dimensions.size() == 1 && resolved.dimensions[0].left == 0 && resolved.dimensions[0].right == 0){
-        resolved.dimensions = {};
+    if(resolved.type.unpacked_dims.size() == 1 && resolved.type.unpacked_dims[0].left == 0 && resolved.type.unpacked_dims[0].right == 0){
+        resolved.type.unpacked_dims = {};
     }
 
     return resolved;
@@ -1369,17 +1369,18 @@ std::vector<std::string> generateIndexSuffixes(const std::vector<ResolvedDimensi
 // Pre-populate module input (port) with all bit indices
 // For vector inputs, creates base node + individual element nodes
 void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
-    if (sig.dimensions.empty()) {
+    if (sig.type.unpacked_dims.empty()) {
         auto* node = graph.input(sig.name);
         node->type = sig.type;
     } else {
         // Create base node for dynamic read access
         auto* base = graph.input(sig.name);
         base->type = sig.type;
-        // Create individual element nodes
-        for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
+        // Create individual element nodes (no unpacked dims on elements)
+        for (const auto& suffix : generateIndexSuffixes(sig.type.unpacked_dims)) {
             auto* elem = graph.input(sig.name + suffix);
             elem->type = sig.type;
+            elem->type->unpacked_dims = {};
         }
     }
 }
@@ -1388,7 +1389,7 @@ void prePopulateInput(DFG& graph, const ResolvedSignal& sig) {
 // Creates OUTPUT nodes with no driver (->in empty)
 // For vector outputs, creates base node + individual element nodes
 void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
-    if (sig.dimensions.empty()) {
+    if (sig.type.unpacked_dims.empty()) {
         auto n = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name);
         n->type = sig.type;
         graph.nodes.push_back(std::move(n));
@@ -1399,10 +1400,11 @@ void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
         n->type = sig.type;
         graph.nodes.push_back(std::move(n));
         graph.outputs[sig.name] = graph.nodes.back().get();
-        // Create individual element nodes
-        for (const auto& suffix : generateIndexSuffixes(sig.dimensions)) {
+        // Create individual element nodes (no unpacked dims on elements)
+        for (const auto& suffix : generateIndexSuffixes(sig.type.unpacked_dims)) {
             auto elemNode = std::make_unique<DFGNode>(DFGOp::OUTPUT, sig.name + suffix);
             elemNode->type = sig.type;
+            elemNode->type->unpacked_dims = {};
             graph.nodes.push_back(std::move(elemNode));
             graph.outputs[sig.name + suffix] = graph.nodes.back().get();
         }
@@ -1413,7 +1415,7 @@ void prePopulateOutput(DFG& graph, const ResolvedSignal& sig) {
 // For vector signals, creates individual element nodes
 // For flop .d/.q signals, handles special naming (my_flop[idx].d)
 void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
-    if (sig.dimensions.empty()) {
+    if (sig.type.unpacked_dims.empty()) {
         auto* node = graph.signal(sig.name);
         node->type = sig.type;
         return;
@@ -1432,11 +1434,12 @@ void prePopulateSignal(DFG& graph, const ResolvedSignal& sig) {
     auto* aggregate = graph.signal(sig.name);
     aggregate->type = sig.type;
 
-    // Create individual element nodes
-    for (const auto& idxSuffix : generateIndexSuffixes(sig.dimensions)) {
+    // Create individual element nodes (no unpacked dims on elements)
+    for (const auto& idxSuffix : generateIndexSuffixes(sig.type.unpacked_dims)) {
         std::string elemName = baseName + idxSuffix + typeSuffix;
         auto* individual = graph.signal(elemName);
         individual->type = sig.type;
+        individual->type->unpacked_dims = {};
         aggregate->in.push_back(individual);
     }
 }
