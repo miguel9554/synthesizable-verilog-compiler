@@ -342,7 +342,7 @@ ResolvedType resolveType(
         width *= dim.size();
     }
 
-    return ResolvedType::makeInteger(width, is_signed);
+    return ResolvedType::makeInteger(width, is_signed, packedDimensions);
 }
 
 DFGNode* resolveIdentifier(

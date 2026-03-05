@@ -14,11 +14,13 @@ namespace custom_hdl {
 // ResolvedType implementation
 // ============================================================================
 
-ResolvedType ResolvedType::makeInteger(int width, bool is_signed) {
+ResolvedType ResolvedType::makeInteger(int width, bool is_signed,
+                                       std::vector<ResolvedDimension> packed_dims) {
     return ResolvedType{
         .kind = ResolvedTypeKind::Integer,
         .width = width,
-        .metadata = ResolvedIntegerInfo{.is_signed = is_signed}
+        .metadata = ResolvedIntegerInfo{.is_signed = is_signed},
+        .packed_dims = std::move(packed_dims)
     };
 }
 
@@ -34,7 +36,13 @@ void ResolvedType::print(std::ostream& os) const {
             os << "Integer";
             break;
     }
-    os << "[" << width << "]";
+    if (!packed_dims.empty()) {
+        for (const auto& dim : packed_dims) {
+            os << "[" << dim.left << ":" << dim.right << "]";
+        }
+    } else {
+        os << "[" << width << "]";
+    }
     if (std::holds_alternative<ResolvedIntegerInfo>(metadata)) {
         auto& intInfo = std::get<ResolvedIntegerInfo>(metadata);
         os << (intInfo.is_signed ? " signed" : " unsigned");

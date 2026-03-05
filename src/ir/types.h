@@ -1,9 +1,18 @@
 #pragma once
 
+#include <cstdlib>
 #include <ostream>
 #include <variant>
+#include <vector>
 
 namespace custom_hdl {
+
+struct ResolvedDimension {
+    int left = 0;
+    int right = 0;
+
+    int size() const { return std::abs(left - right) + 1; }
+};
 
 enum class ResolvedTypeKind {
     Integer,
@@ -21,15 +30,16 @@ using ResolvedTypeMetadata = std::variant<
     ResolvedIntegerInfo
 >;
 
-// TODO should actually have a packed dimension? or we don't care?
 struct ResolvedType {
     ResolvedTypeKind kind = ResolvedTypeKind::Integer;
     int width = 0;
     ResolvedTypeMetadata metadata;
+    std::vector<ResolvedDimension> packed_dims;
 
     void print(std::ostream& os) const;
 
-    static ResolvedType makeInteger(int width, bool is_signed);
+    static ResolvedType makeInteger(int width, bool is_signed,
+                                    std::vector<ResolvedDimension> packed_dims = {});
 
     bool isSigned() const {
         if (std::holds_alternative<ResolvedIntegerInfo>(metadata)) {

@@ -25,13 +25,6 @@ typedef struct {
     std::string name;
 } asyncTrigger_t;
 
-struct ResolvedDimension {
-    int left = 0;
-    int right = 0;
-
-    int size() const { return std::abs(left - right) + 1; }
-};
-
 struct ResolvedSignalBase {
     std::string name;
     ResolvedType type;

@@ -328,14 +328,28 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
                 return values_.at(array_node->in[index].node);
             }
 
-            // Bit-select: extract elem_width bits at position index*elem_width
+            // Bit-select: extract elem_width bits using packed dimension bounds
             int64_t array_val = getVal(0);
             int elem_width = 1;
             if (node->type.has_value()) {
                 elem_width = node->type->width;
             }
+
+            // Compute physical bit position from packed dimension bounds
+            int64_t bit_pos;
+            if (array_node->type.has_value() && !array_node->type->packed_dims.empty()) {
+                const auto& dim = array_node->type->packed_dims[0];
+                if (dim.left >= dim.right) {
+                    bit_pos = (index - dim.right) * elem_width;
+                } else {
+                    bit_pos = (dim.right - index) * elem_width;
+                }
+            } else {
+                bit_pos = index * elem_width;
+            }
+
             uint64_t elem_mask = (elem_width >= 64) ? ~0ULL : (1ULL << elem_width) - 1;
-            return static_cast<int64_t>((static_cast<uint64_t>(array_val) >> (index * elem_width)) & elem_mask);
+            return static_cast<int64_t>((static_cast<uint64_t>(array_val) >> bit_pos) & elem_mask);
         }
 
         case DFGOp::MODULE:

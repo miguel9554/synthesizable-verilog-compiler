@@ -222,8 +222,7 @@ static bool tryInferType(DFGNode* node) {
             return true;
         }
 
-        // INDEX: array element select — use array's type for now
-        // TODO: should derive element type from array dimensions
+        // INDEX: array element select
         case DFGOp::INDEX: {
             if (node->in.size() < 2) {
                 throw CompilerError(std::format(
@@ -232,7 +231,28 @@ static bool tryInferType(DFGNode* node) {
             }
             auto* array = node->in[0].node;
             if (!array->hasType()) return false;
-            node->type = *array->type;
+
+            // Vector indexing: array node is a SIGNAL with multiple inputs
+            // (one per element). Result type = array's element type (unchanged).
+            if (array->in.size() > 1) {
+                node->type = *array->type;
+                return true;
+            }
+
+            // Bit-select: peel the outermost packed dimension
+            const auto& pdims = array->type->packed_dims;
+            if (!pdims.empty()) {
+                // Remove outermost dimension, recompute width from remaining
+                std::vector<ResolvedDimension> remaining(pdims.begin() + 1, pdims.end());
+                int new_width = 1;
+                for (const auto& d : remaining) {
+                    new_width *= d.size();
+                }
+                node->type = ResolvedType::makeInteger(new_width, array->type->isSigned(), remaining);
+            } else {
+                // No packed dims — single-bit select fallback
+                node->type = ResolvedType::makeInteger(1, false);
+            }
             return true;
         }
     }
