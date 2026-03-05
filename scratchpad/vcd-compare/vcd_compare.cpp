@@ -300,6 +300,26 @@ int main(int argc, char *argv[]) {
     for (auto &n : signals_with_diffs)
         std::printf("  - %s\n", n.c_str());
 
+    // Per-signal pass/fail
+    std::printf("\n========================================\n");
+    for (auto &name : matched) {
+        bool passed = true;
+        for (auto &n : signals_with_diffs) {
+            if (n == name) { passed = false; break; }
+        }
+        if (passed)
+            std::printf("  \033[32mPASS\033[0m  %s\n", name.c_str());
+        else
+            std::printf("  \033[31mFAIL\033[0m  %s\n", name.c_str());
+    }
+    std::printf("========================================\n");
+
+    if (total_diff == 0)
+        std::printf("\n  \033[1;32m========== ALL SIGNALS PASS ==========\033[0m\n\n");
+    else
+        std::printf("\n  \033[1;31m========== %d SIGNAL(S) FAILED ==========\033[0m\n\n",
+                    (int)signals_with_diffs.size());
+
     delete f1;
     delete f2;
     return total_diff > 0 ? 1 : 0;
