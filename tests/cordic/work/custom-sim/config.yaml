@@ -9,3 +9,5 @@ output_dir: "tests/cordic/work/custom-sim/output"
 debug_dfg_nodes:
   - "z.d"
   - "i.d"
+flops-initial:
+  mode: zeros
