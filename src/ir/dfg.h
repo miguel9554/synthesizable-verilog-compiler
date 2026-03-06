@@ -21,6 +21,8 @@ enum class DFGOp {
     SIGNAL,     // Internal signal (named placeholder)
     CONST,      // Constant value (data: int64_t)
     INDEX,      // Indexing: in[0]=source, in[1]=high, in[2]=low
+    CONCAT,       // Concatenation: in[0..N-1] = parts, MSB-first
+    CONCAT_ALIGN, // Temporary: in[0]=expr, in[1]=high_idx, in[2]=low_idx
     // Binary ops
     ADD,
     SUB,
@@ -57,6 +59,8 @@ inline const char* to_string(DFGOp op) {
         case DFGOp::SIGNAL: return "SIGNAL";
         case DFGOp::CONST: return "CONST";
         case DFGOp::INDEX: return "INDEX";
+        case DFGOp::CONCAT: return "CONCAT";
+        case DFGOp::CONCAT_ALIGN: return "CONCAT_ALIGN";
         case DFGOp::ADD: return "ADD";
         case DFGOp::SUB: return "SUB";
         case DFGOp::MUL: return "MUL";
@@ -102,6 +106,8 @@ inline int expectedInputs(DFGOp op) {
         case DFGOp::MUX_N:  return -1;
 
         case DFGOp::INDEX:  return 3;
+        case DFGOp::CONCAT: return -1; // variable
+        case DFGOp::CONCAT_ALIGN: return 3;
         case DFGOp::ADD:    return 2;
         case DFGOp::SUB:    return 2;
         case DFGOp::MUL:    return 2;
@@ -277,6 +283,32 @@ struct DFG {
             ? std::make_unique<DFGNode>(DFGOp::INDEX)
             : std::make_unique<DFGNode>(DFGOp::INDEX, name);
         n->in = {source, high, low};
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
+    // Create a CONCAT node: concatenation of parts, MSB-first
+    DFGNode* concat(const std::vector<DFGNode*>& parts, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::CONCAT)
+            : std::make_unique<DFGNode>(DFGOp::CONCAT, name);
+        for (auto* p : parts) n->in.push_back(p);
+        nodes.push_back(std::move(n));
+        if (!name.empty()) {
+            signals[name] = nodes.back().get();
+        }
+        return nodes.back().get();
+    }
+
+    // Create a CONCAT_ALIGN node: temporary wrapper with positional metadata
+    DFGNode* concatAlign(DFGNode* expr, DFGNode* high, DFGNode* low, const std::string& name = "") {
+        auto n = name.empty()
+            ? std::make_unique<DFGNode>(DFGOp::CONCAT_ALIGN)
+            : std::make_unique<DFGNode>(DFGOp::CONCAT_ALIGN, name);
+        n->in = {expr, high, low};
         nodes.push_back(std::move(n));
         if (!name.empty()) {
             signals[name] = nodes.back().get();

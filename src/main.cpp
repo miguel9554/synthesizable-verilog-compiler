@@ -9,6 +9,7 @@
 
 #include "passes/extractor.h"
 #include "passes/elaboration.h"
+#include "passes/concat_cleanup.h"
 #include "passes/constant_fold.h"
 #include "passes/condition_normalization.h"
 #include "passes/dce.h"
@@ -202,13 +203,14 @@ int main(int argc, char** argv) {
             };
 
             runPass(0, "elaboration", []{});
-            runPass(1, "type_propagation", [&]{ propagateTypes(*module.dfg); });
-            runPass(2, "condition_normalization", [&]{ normalizeConditions(*module.dfg); });
-            runPass(3, "constant_fold", [&]{ constantFold(*module.dfg); });
-            runPass(4, "dce", [&]{ eliminateDeadCode(*module.dfg); });
+            runPass(1, "concat_cleanup", [&]{ cleanupConcats(*module.dfg); });
+            runPass(2, "type_propagation", [&]{ propagateTypes(*module.dfg); });
+            runPass(3, "condition_normalization", [&]{ normalizeConditions(*module.dfg); });
+            runPass(4, "constant_fold", [&]{ constantFold(*module.dfg); });
+            runPass(5, "dce", [&]{ eliminateDeadCode(*module.dfg); });
             module.dfg->validateNoOrphans();
-            runPass(5, "flop_resolve", [&]{ resolveFlops(module); });
-            runPass(6, "domain_resolve", [&]{ resolveDomains(module); });
+            runPass(6, "flop_resolve", [&]{ resolveFlops(module); });
+            runPass(7, "domain_resolve", [&]{ resolveDomains(module); });
             validateNoCombLoops(module);
 
             if (simConfig && !simConfig->debug_dfg_nodes.empty()) {

@@ -684,63 +684,141 @@ void resolveAssignExpression(const BinaryExpressionSyntax& assignExpr,
         resolveSourceLoc(assignExpr, ctx.sm));
     }
 
-    // Build the full element name for LHS by evaluating selectors statically
+    // Build the full element name for LHS by evaluating selectors statically.
+    // Range selects (e.g. word_out[3:0]) are handled via CONCAT/CONCAT_ALIGN.
     std::string indexSuffix;
+    bool hasRangeSelect = false;
+    int64_t rangeHigh = 0, rangeLow = 0;
+
     if (selectors) {
         for (const auto& elemSelect : *selectors) {
             if (!elemSelect->selector) {
                 throw CompilerError("Empty selector not allowed.",
                                     resolveSourceLoc(assignExpr, ctx.sm));
             }
-            if (elemSelect->selector->kind != SyntaxKind::BitSelect) {
-                throw CompilerError(
-                    "Currently only single element select supported.",
-                    resolveSourceLoc(assignExpr, ctx.sm));
-            }
-            const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
-            const auto& selectorExpr = bitSelect.expr;
+            if (elemSelect->selector->kind == SyntaxKind::BitSelect) {
+                const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
+                const auto& selectorExpr = bitSelect.expr;
 
-            // Try to evaluate the index statically
-            try {
-                int64_t idx = evaluateConstantExpr(selectorExpr, ctx.params);
-                indexSuffix += "[" + std::to_string(idx) + "]";
-            } catch (const std::runtime_error&) {
+                // Try to evaluate the index statically
+                try {
+                    int64_t idx = evaluateConstantExpr(selectorExpr, ctx.params);
+                    indexSuffix += "[" + std::to_string(idx) + "]";
+                } catch (const std::runtime_error&) {
+                    throw CompilerError(
+                        "Dynamic index on LHS not supported for: " + baseName,
+                        resolveSourceLoc(assignExpr, ctx.sm));
+                }
+            } else if (elemSelect->selector->kind == SyntaxKind::SimpleRangeSelect) {
+                const auto& rangeSelect = elemSelect->selector->as<RangeSelectSyntax>();
+                try {
+                    rangeHigh = evaluateConstantExpr(rangeSelect.left, ctx.params);
+                    rangeLow = evaluateConstantExpr(rangeSelect.right, ctx.params);
+                } catch (const std::runtime_error&) {
+                    throw CompilerError(
+                        "Dynamic range on LHS not supported for: " + baseName,
+                        resolveSourceLoc(assignExpr, ctx.sm));
+                }
+                hasRangeSelect = true;
+            } else {
                 throw CompilerError(
-                    "Dynamic index on LHS not supported for: " + baseName,
+                    "Unsupported selector kind on LHS: " +
+                    std::string(toString(elemSelect->selector->kind)),
                     resolveSourceLoc(assignExpr, ctx.sm));
             }
         }
     }
 
-    // Build the full output name
-    // For sequential blocks with flops: base[idx].d
-    // For combinational: base[idx] or just base
-    std::string outputName;
-    if (ctx.is_sequential) {
-        if (ctx.flopNames.contains(baseName)) {
-            outputName = baseName + indexSuffix + ".d";
+    // Range-select on LHS: build CONCAT_ALIGN -> CONCAT -> target
+    if (hasRangeSelect) {
+        // Build the target name (no index suffix for range assigns)
+        std::string outputName;
+        if (ctx.is_sequential) {
+            if (ctx.flopNames.contains(baseName)) {
+                outputName = baseName + indexSuffix + ".d";
+            } else {
+                throw CompilerError(
+                    std::format("{} NOT a flop and assigned on seq. block", baseName),
+                    resolveSourceLoc(assignExpr, ctx.sm));
+            }
         } else {
-            throw CompilerError(
-                std::format("{} NOT a flop and assigned on seq. block", baseName),
-                resolveSourceLoc(assignExpr, ctx.sm));
+            outputName = baseName + indexSuffix;
+        }
+
+        // Create CONST nodes for high/low indices
+        auto* highConst = ctx.graph.constant(rangeHigh);
+        highConst->loc = resolveSourceLoc(assignExpr, ctx.sm);
+        auto* lowConst = ctx.graph.constant(rangeLow);
+        lowConst->loc = resolveSourceLoc(assignExpr, ctx.sm);
+
+        // Create CONCAT_ALIGN wrapping the RHS expression
+        auto* alignNode = ctx.graph.concatAlign(RHSexprNode, highConst, lowConst);
+        alignNode->loc = resolveSourceLoc(assignExpr, ctx.sm);
+
+        // Find the target node
+        DFGNode* targetNode = nullptr;
+        if (ctx.graph.outputs.contains(outputName)) {
+            targetNode = ctx.graph.outputs[outputName];
+        } else if (ctx.graph.signals.contains(outputName)) {
+            targetNode = ctx.graph.signals[outputName];
+        } else {
+            throw CompilerError("Cannot assign to undeclared: " + outputName,
+                                resolveSourceLoc(assignExpr, ctx.sm));
+        }
+
+        // Check if the target already has a CONCAT driver
+        if (!targetNode->in.empty() && targetNode->in[0].node->op == DFGOp::CONCAT) {
+            // Append to existing CONCAT
+            targetNode->in[0].node->in.push_back(alignNode);
+        } else {
+            // Create new CONCAT with this CONCAT_ALIGN as first input
+            auto* concatNode = ctx.graph.concat({alignNode});
+            concatNode->loc = resolveSourceLoc(assignExpr, ctx.sm);
+
+            // Connect CONCAT to target
+            if (ctx.graph.outputs.contains(outputName)) {
+                ctx.graph.connectOutput(outputName, concatNode);
+            } else {
+                ctx.graph.connectSignal(outputName, concatNode);
+            }
+        }
+
+        if (!ctx.is_sequential) {
+            ctx.combDrivers[outputName] = targetNode->in[0].node;
         }
     } else {
-        outputName = baseName + indexSuffix;
-    }
+        // Normal (non-range) assign path
 
-    // Connect driver to existing output or signal node
-    if (ctx.graph.outputs.contains(outputName)) {
-        ctx.graph.connectOutput(outputName, RHSexprNode);
-    } else if (ctx.graph.signals.contains(outputName)) {
-        ctx.graph.connectSignal(outputName, RHSexprNode);
-    } else {
-        throw CompilerError("Cannot assign to undeclared: " + outputName,
-                            resolveSourceLoc(assignExpr, ctx.sm));
-    }
+        // Build the full output name
+        // For sequential blocks with flops: base[idx].d
+        // For combinational: base[idx] or just base
+        std::string outputName;
+        if (ctx.is_sequential) {
+            if (ctx.flopNames.contains(baseName)) {
+                outputName = baseName + indexSuffix + ".d";
+            } else {
+                throw CompilerError(
+                    std::format("{} NOT a flop and assigned on seq. block", baseName),
+                    resolveSourceLoc(assignExpr, ctx.sm));
+            }
+        } else {
+            outputName = baseName + indexSuffix;
+        }
 
-    // Track the current driver so subsequent reads in this block see it
-    if (!ctx.is_sequential) {
-        ctx.combDrivers[outputName] = RHSexprNode;
+        // Connect driver to existing output or signal node
+        if (ctx.graph.outputs.contains(outputName)) {
+            ctx.graph.connectOutput(outputName, RHSexprNode);
+        } else if (ctx.graph.signals.contains(outputName)) {
+            ctx.graph.connectSignal(outputName, RHSexprNode);
+        } else {
+            throw CompilerError("Cannot assign to undeclared: " + outputName,
+                                resolveSourceLoc(assignExpr, ctx.sm));
+        }
+
+        // Track the current driver so subsequent reads in this block see it
+        if (!ctx.is_sequential) {
+            ctx.combDrivers[outputName] = RHSexprNode;
+        }
     }
 
     // If the assign is sequential, set the triggers of the signal

@@ -421,6 +421,21 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
             return static_cast<int64_t>((static_cast<uint64_t>(source_val) >> bit_pos) & elem_mask);
         }
 
+        case DFGOp::CONCAT: {
+            // Shift-and-or each input value into the result, MSB-first
+            uint64_t result = 0;
+            for (size_t i = 0; i < node->in.size(); ++i) {
+                const DFGNode* inputNode = node->in[i].node;
+                int w = inputNode->type.has_value() ? inputNode->type->width : 64;
+                uint64_t mask = (w >= 64) ? ~0ULL : (1ULL << w) - 1;
+                result = (result << w) | (static_cast<uint64_t>(values_.at(inputNode)) & mask);
+            }
+            return static_cast<int64_t>(result);
+        }
+
+        case DFGOp::CONCAT_ALIGN:
+            throw CompilerError("Simulator: CONCAT_ALIGN should have been cleaned up by concat_cleanup pass", node);
+
         case DFGOp::MODULE:
             throw CompilerError("Simulator: MODULE nodes not supported (no hierarchy support yet)", node);
     }

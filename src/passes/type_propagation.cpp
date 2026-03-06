@@ -223,6 +223,36 @@ static bool tryInferType(DFGNode* node) {
             return true;
         }
 
+        // CONCAT: result width = sum of input widths, always unsigned
+        case DFGOp::CONCAT: {
+            if (node->in.empty()) {
+                throw CompilerError(std::format(
+                    "Type propagation: CONCAT {} has no inputs", node->str()), node->loc);
+            }
+            for (const auto& input : node->in) {
+                if (!input.node->hasType()) return false;
+            }
+            int totalWidth = 0;
+            for (const auto& input : node->in) {
+                totalWidth += input.node->type->width;
+            }
+            node->type = ResolvedType::makeInteger(totalWidth, false);
+            return true;
+        }
+
+        // CONCAT_ALIGN: pass-through type from expression input (in[0])
+        case DFGOp::CONCAT_ALIGN: {
+            if (node->in.size() < 3) {
+                throw CompilerError(std::format(
+                    "Type propagation: CONCAT_ALIGN {} has {} inputs (expected 3)",
+                    node->str(), node->in.size()), node->loc);
+            }
+            auto* expr = node->in[0].node;
+            if (!expr->hasType()) return false;
+            node->type = *expr->type;
+            return true;
+        }
+
         // INDEX: in[0]=source, in[1]=high, in[2]=low
         case DFGOp::INDEX: {
             if (node->in.size() < 3) {
