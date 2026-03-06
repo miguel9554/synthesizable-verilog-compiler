@@ -441,16 +441,23 @@ DFGNode* buildExprDFG(
                             "Empty selector not allowed.",
                             resolveSourceLoc(*expr, ctx.sm));
                     }
-                    if (elemSelect->selector->kind != SyntaxKind::BitSelect){
+                    if (elemSelect->selector->kind == SyntaxKind::BitSelect){
+                        const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
+                        auto* selectorExprNode = buildExprDFG(bitSelect.expr, ctx);
+                        indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode, selectorExprNode);
+                        indexedSignalNode->loc = resolveSourceLoc(*expr, ctx.sm);
+                    } else if (elemSelect->selector->kind == SyntaxKind::SimpleRangeSelect){
+                        const auto& rangeSelect = elemSelect->selector->as<RangeSelectSyntax>();
+                        auto* leftNode = buildExprDFG(rangeSelect.left, ctx);
+                        auto* rightNode = buildExprDFG(rangeSelect.right, ctx);
+                        indexedSignalNode = ctx.graph.index(indexedSignalNode, leftNode, rightNode);
+                        indexedSignalNode->loc = resolveSourceLoc(*expr, ctx.sm);
+                    } else {
                         throw CompilerError(
-                            "Currently only single element select supported.",
+                            "Only BitSelect and SimpleRangeSelect supported, got: " +
+                            std::string(toString(elemSelect->selector->kind)),
                             resolveSourceLoc(*expr, ctx.sm));
                     }
-                    const auto& bitSelect = elemSelect->selector->as<BitSelectSyntax>();
-                    const auto& selectorExpr = bitSelect.expr;
-                    auto* selectorExprNode = buildExprDFG(selectorExpr, ctx);
-                    indexedSignalNode = ctx.graph.index(indexedSignalNode, selectorExprNode);
-                    indexedSignalNode->loc = resolveSourceLoc(*expr, ctx.sm);
                 }
             }
 

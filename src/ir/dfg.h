@@ -20,7 +20,7 @@ enum class DFGOp {
     OUTPUT,     // Primary output (module port)
     SIGNAL,     // Internal signal (named placeholder)
     CONST,      // Constant value (data: int64_t)
-    INDEX,      // Array indexing: in[0]=array, in[1]=index
+    INDEX,      // Indexing: in[0]=source, in[1]=high, in[2]=low
     // Binary ops
     ADD,
     SUB,
@@ -101,7 +101,7 @@ inline int expectedInputs(DFGOp op) {
         // MUX_N: variable (even, >= 2) — validated separately
         case DFGOp::MUX_N:  return -1;
 
-        case DFGOp::INDEX:  return 2;
+        case DFGOp::INDEX:  return 3;
         case DFGOp::ADD:    return 2;
         case DFGOp::SUB:    return 2;
         case DFGOp::MUL:    return 2;
@@ -271,12 +271,12 @@ struct DFG {
         return nodes.back().get();
     }
 
-    // Create an INDEX node: array[index]
-    DFGNode* index(DFGNode* array, DFGNode* idx, const std::string& name = "") {
+    // Create an INDEX node: source[high:low] (single-element: high == low)
+    DFGNode* index(DFGNode* source, DFGNode* high, DFGNode* low, const std::string& name = "") {
         auto n = name.empty()
             ? std::make_unique<DFGNode>(DFGOp::INDEX)
             : std::make_unique<DFGNode>(DFGOp::INDEX, name);
-        n->in = {array, idx};
+        n->in = {source, high, low};
         nodes.push_back(std::move(n));
         if (!name.empty()) {
             signals[name] = nodes.back().get();

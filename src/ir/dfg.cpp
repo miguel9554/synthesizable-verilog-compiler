@@ -117,6 +117,11 @@ std::string DFG::renderDot(const std::string& graphName,
                 if (j == 1) return "T";
                 if (j == 2) return "F";
                 break;
+            case DFGOp::INDEX:
+                if (j == 0) return "src";
+                if (j == 1) return "hi";
+                if (j == 2) return "lo";
+                break;
             case DFGOp::MUX_N: {
                 size_t nSel = totalInputs / 2;
                 if (j < nSel) return "sel" + std::to_string(j);

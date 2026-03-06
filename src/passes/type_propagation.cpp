@@ -3,6 +3,7 @@
 #include "util/source_loc.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <stdexcept>
 #include <unordered_set>
@@ -222,17 +223,19 @@ static bool tryInferType(DFGNode* node) {
             return true;
         }
 
-        // INDEX: array element select
+        // INDEX: in[0]=source, in[1]=high, in[2]=low
         case DFGOp::INDEX: {
-            if (node->in.size() < 2) {
+            if (node->in.size() < 3) {
                 throw CompilerError(std::format(
-                    "Type propagation: INDEX {} has {} inputs (expected 2)",
+                    "Type propagation: INDEX {} has {} inputs (expected 3)",
                     node->str(), node->in.size()), node->loc);
             }
-            auto* array = node->in[0].node;
-            if (!array->hasType()) return false;
+            auto* source = node->in[0].node;
+            auto* highNode = node->in[1].node;
+            auto* lowNode = node->in[2].node;
+            if (!source->hasType()) return false;
 
-            const auto& atype = *array->type;
+            const auto& atype = *source->type;
 
             // Unpacked dimension indexing (vector select): peel one unpacked dim,
             // keep packed dims and width unchanged.
@@ -244,17 +247,35 @@ static bool tryInferType(DFGNode* node) {
                 return true;
             }
 
-            // Packed dimension indexing (bit-select): peel one packed dim,
-            // recompute width from remaining packed dims.
+            // Packed dimension indexing
             if (!atype.packed_dims.empty()) {
-                std::vector<ResolvedDimension> remaining(
-                    atype.packed_dims.begin() + 1, atype.packed_dims.end());
-                int new_width = 1;
-                for (const auto& d : remaining) {
-                    new_width *= d.size();
+                // Both indices must be CONST for packed selects
+                if (highNode->op != DFGOp::CONST || lowNode->op != DFGOp::CONST) {
+                    throw CompilerError(std::format(
+                        "Type propagation: INDEX {} has non-constant packed indices "
+                        "(dynamic range selects not supported)",
+                        node->str()), node->loc);
                 }
-                node->type = ResolvedType::makeInteger(
-                    new_width, atype.isSigned(), remaining);
+                int64_t high_val = std::get<int64_t>(highNode->data);
+                int64_t low_val = std::get<int64_t>(lowNode->data);
+
+                if (high_val == low_val) {
+                    // Single-element bit-select: peel one packed dim,
+                    // recompute width from remaining packed dims.
+                    std::vector<ResolvedDimension> remaining(
+                        atype.packed_dims.begin() + 1, atype.packed_dims.end());
+                    int new_width = 1;
+                    for (const auto& d : remaining) {
+                        new_width *= d.size();
+                    }
+                    node->type = ResolvedType::makeInteger(
+                        new_width, atype.isSigned(), remaining);
+                } else {
+                    // Range select: result width = |high - low| + 1, no packed dims
+                    int new_width = static_cast<int>(std::abs(high_val - low_val)) + 1;
+                    node->type = ResolvedType::makeInteger(
+                        new_width, atype.isSigned());
+                }
                 return true;
             }
 

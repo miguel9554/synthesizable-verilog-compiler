@@ -386,39 +386,39 @@ int64_t Simulator::evaluateNode(const DFGNode* node) {
         }
 
         case DFGOp::INDEX: {
-            const DFGNode* array_node = node->in[0].node;
-            int64_t index = getVal(1);
+            const DFGNode* source_node = node->in[0].node;
 
             // Vector indexing (unpacked dimension): select the value of the
             // i-th input node. Use modulo to wrap out-of-range indices.
-            if (array_node->type.has_value() && !array_node->type->unpacked_dims.empty()) {
-                int64_t n = static_cast<int64_t>(array_node->in.size());
+            // high and low are equal for vector selects, so either works.
+            if (source_node->type.has_value() && !source_node->type->unpacked_dims.empty()) {
+                int64_t index = getVal(1);
+                int64_t n = static_cast<int64_t>(source_node->in.size());
                 index = ((index % n) + n) % n;
-                return values_.at(array_node->in[index].node);
+                return values_.at(source_node->in[index].node);
             }
 
-            // Bit-select (packed dimension): extract elem_width bits
-            int64_t array_val = getVal(0);
-            int elem_width = 1;
-            if (node->type.has_value()) {
-                elem_width = node->type->width;
-            }
+            // Bit/range select (packed dimension)
+            int64_t high = getVal(1);
+            int64_t low = getVal(2);
+            int64_t source_val = getVal(0);
+            int64_t width = high - low + 1;
 
             // Compute physical bit position from packed dimension bounds
             int64_t bit_pos;
-            if (array_node->type.has_value() && !array_node->type->packed_dims.empty()) {
-                const auto& dim = array_node->type->packed_dims[0];
+            if (source_node->type.has_value() && !source_node->type->packed_dims.empty()) {
+                const auto& dim = source_node->type->packed_dims[0];
                 if (dim.left >= dim.right) {
-                    bit_pos = (index - dim.right) * elem_width;
+                    bit_pos = low - dim.right;
                 } else {
-                    bit_pos = (dim.right - index) * elem_width;
+                    bit_pos = dim.right - high;
                 }
             } else {
-                bit_pos = index * elem_width;
+                bit_pos = low;
             }
 
-            uint64_t elem_mask = (elem_width >= 64) ? ~0ULL : (1ULL << elem_width) - 1;
-            return static_cast<int64_t>((static_cast<uint64_t>(array_val) >> bit_pos) & elem_mask);
+            uint64_t elem_mask = (width >= 64) ? ~0ULL : (1ULL << width) - 1;
+            return static_cast<int64_t>((static_cast<uint64_t>(source_val) >> bit_pos) & elem_mask);
         }
 
         case DFGOp::MODULE:
